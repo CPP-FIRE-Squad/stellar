@@ -82,7 +82,9 @@ def get_particles(sim, particle, halo_index, halo_center, halo_velocity ):
             star = Star(positions[i], masses[i], velocities[i], ids[i], idGens[i], idChilds[i], 
                         ages[i], massfractions[i])
             stars.append(star)
+
         return stars
+    
     elif particle == 'gas':
         # Gas has an additional density, massfraction, temp, hydrogenfraction, electronfraction, size, sfr
         densities = sim.particles[particle]['density']
@@ -106,11 +108,15 @@ def get_particles(sim, particle, halo_index, halo_center, halo_velocity ):
             g = Gas(positions[i], masses[i], velocities[i], ids[i], idGens[i], idChilds[i], 
                     densities[i], massfractions[i], temps[i], hydrogenfractions[i], electronfractions[i], sizes[i], sfrs[i])
             gasses.append(g)
+
         return gasses
+    
     elif particle == 'dark':
+        
         darks = []
         for i in range(len(positions)):
             d = Dark(positions[i], masses[i], velocities[i], ids[i], idGens[i], idChilds[i])
             darks.append(d)
+
         return darks
     
