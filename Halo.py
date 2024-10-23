@@ -1,9 +1,29 @@
-import stellarutil
-import numpy as np
-import pickle
-import abc
+import numpy as np, pickle, abc
 
-def _get_getter(var_name, func, set_name_to_add_var_name=None):
+def _get_getter(var_name, generator, set_name_to_add_var_name=None):
+    """Returns a getter that returns the attribute with the name given by var_name. 
+    Before the attribute is accessed, it is not initialized and is None/inaccessible. When it is accessed by the getter for the first time, its initial value is created 
+    by the generator function. This allows for values to not be initialized until they are accessed for the first time, reducing processing power by not initializing
+    unused attributes.
+
+    Example: 
+    ```
+    class Foo:
+        bar_initial_value = 1
+
+        bar = _get_getter("_bar", lambda self: self.bar_initial_value)
+
+    foo = Foo()
+    # foo.bar has not been initialized yet
+    print(foo.bar)  # Returns 1
+    # foo.bar has now been initialized and any future calls will just return the previously set foo.bar
+    ```
+
+    :param var_name: The name of the variable to store the attribute in
+    :param generator: A function that returns the default/initial value for the attribute. self (the object the method is called on) is passed in as the only parameter
+    :param set_name_to_add_var_name: Optional. The variable name of a set in the affiliated object that var_name will be automatically added to
+    :return: A getter that, when called returns the attribute. This can be set to any class variable to affiliate it with a class
+    """
     @property
     def getter(self):
         if getattr(self, var_name, None) is None:
@@ -14,7 +34,7 @@ def _get_getter(var_name, func, set_name_to_add_var_name=None):
                 else:
                     set_to_add_var_name.add(var_name)
 
-            new_val = func(self)
+            new_val = generator(self)
             setattr(self, var_name, new_val)
             return new_val
         else:
@@ -263,20 +283,29 @@ class Halo:
         self.reset_all_particle_attributes()
         return self
         
+    # Star attributes
     star_pos = _get_getter("_star_pos", lambda self: self.sim.particles['star']['position'][self.stars_in_halo_filter] - self.center_pos, "_star_vars")
+    star_x, star_y, star_z = [property(lambda self: self.star_pos[:, i] for i in range(3))]
     star_vel = _get_getter("_star_vel", lambda self: self.sim.particles['star']['velocity'][self.stars_in_halo_filter] - self.center_vel, "_star_vars")
+    star_vx, star_vy, star_vz = [property(lambda self: self.star_vel[:, i] for i in range(3))]
     star_distance = _get_getter("_star_distance", lambda self: np.sqrt(np.sum(np.square(self.star_pos), 1)), "_star_vars")
+    star_r2d = _get_getter("_star_r2d", lambda self: np.sqrt(np.sum(np.square(self.star_pos[:, [0, 1]]), 1)), "_star_vars")
     star_speed = _get_getter("_star_speed", lambda self: np.sqrt(np.sum(np.square(self.star_vel), 1)), "_star_vars")
     star_id = _get_getter("_star_id", lambda self: self.sim.particles['star']['id'][self.stars_in_halo_filter], "_star_vars")
     star_mass = _get_getter("_star_mass", lambda self: self.sim.particles['star']['mass'][self.stars_in_halo_filter], "_star_vars")
     star_scale_factor = _get_getter("_star_scale_factor", lambda self: self.sim.particles['star']['form.scalefactor'][self.stars_in_halo_filter], "_star_vars")
     star_mass_fraction = _get_getter("_star_mass_fraction", lambda self: self.sim.particles['star']['massfraction'][self.stars_in_halo_filter], "_star_vars")
 
+    # Gas attributes
     gas_pos = _get_getter("_gas_pos", lambda self: self.sim.particles['gas']['position'][self.gas_in_halo_filter] - self.center_pos, "_gas_vars")
+    gas_x, gas_y, gas_z = [property(lambda self: self.gas_pos[:, i] for i in range(3))]
     gas_vel = _get_getter("_gas_vel", lambda self: self.sim.particles['gas']['velocity'][self.gas_in_halo_filter] - self.center_vel, "_gas_vars")
+    gas_vx, gas_vy, gas_vz = [property(lambda self: self.gas_vel[:, i] for i in range(3))]
     gas_distance = _get_getter("_gas_distance", lambda self: np.sqrt(np.sum(np.square(self.gas_pos), 1)), "_gas_vars")
+    gas_r2d = _get_getter("_gas_r2d", lambda self: np.sqrt(np.sum(np.square(self.gas_pos[:, [0, 1]]), 1)), "_gas_vars")
     gas_speed = _get_getter("_gas_speed", lambda self: np.sqrt(np.sum(np.square(self.gas_vel), 1)), "_gas_vars")
     gas_id = _get_getter("_gas_id", lambda self: self.sim.particles['gas']['id'][self.gas_in_halo_filter], "_gas_vars")
+
     gas_mass = _get_getter("_gas_mass", lambda self: self.sim.particles['gas']['mass'][self.gas_in_halo_filter], "_gas_vars")
     gas_mass_fraction = _get_getter("_gas_mass_fraction", lambda self: self.sim.particles['gas']['massfraction'][self.gas_in_halo_filter], "_gas_vars")
     gas_density = _get_getter("_gas_density", lambda self: self.sim.particles['gas']['density'][self.gas_in_halo_filter], "_gas_vars")
@@ -285,20 +314,29 @@ class Halo:
     gas_hydrogen_neutral_fraction = _get_getter("_gas_hydrogen_neutral_fraction", lambda self: self.sim.particles['gas']['hydrogen.neutral.fraction'][self.gas_in_halo_filter], "_gas_vars")
     gas_size = _get_getter("_gas_size", lambda self: self.sim.particles['gas']['size'][self.gas_in_halo_filter], "_gas_vars")
 
+    # Dark attributes
     dark_pos = _get_getter("_dark_pos", lambda self: self.sim.particles['dark']['position'][self.dark_in_halo_filter] - self.center_pos, "_dark_vars")
+    dark_x, dark_y, dark_z = [property(lambda self: self.dark_pos[:, i] for i in range(3))]
     dark_vel = _get_getter("_dark_vel", lambda self: self.sim.particles['dark']['velocity'][self.dark_in_halo_filter] - self.center_vel, "_dark_vars")
+    dark_vx, dark_vy, dark_vz = [property(lambda self: self.dark_vel[:, i] for i in range(3))]
     dark_distance = _get_getter("_dark_distance", lambda self: np.sqrt(np.sum(np.square(self.dark_pos), 1)), "_dark_vars")
+    dark_r2d = _get_getter("_dark_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark_pos[:, [0, 1]]), 1)), "_dark_vars")
     dark_speed = _get_getter("_dark_speed", lambda self: np.sqrt(np.sum(np.square(self.dark_vel), 1)), "_dark_vars")
     dark_id = _get_getter("_dark_id", lambda self: self.sim.particles['dark']['id'][self.dark_in_halo_filter], "_dark_vars")
     dark_mass = _get_getter("_dark_mass", lambda self: self.sim.particles['dark']['mass'][self.dark_in_halo_filter], "_dark_vars")
 
+    # Dark2 attributes
     dark2_pos = _get_getter("_dark2_pos", lambda self: self.sim.particles['dark2']['position'][self.dark2_in_halo_filter] - self.center_pos, "_dark2_vars")
+    dark2_x, dark2_y, dark2_z = [property(lambda self: self.dark2_pos[:, i] for i in range(3))]
     dark2_vel = _get_getter("_dark2_vel", lambda self: self.sim.particles['dark2']['velocity'][self.dark2_in_halo_filter] - self.center_vel, "_dark2_vars")
+    dark2_vx, dark2_vy, dark2_vz = [property(lambda self: self.dark2_vel[:, i] for i in range(3))]
     dark2_distance = _get_getter("_dark2_distance", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos), 1)), "_dark2_vars")
+    dark2_r2d = _get_getter("_dark2_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos[:, [0, 1]]), 1)), "_dark2_vars")
     dark2_speed = _get_getter("_dark2_speed", lambda self: np.sqrt(np.sum(np.square(self.dark2_vel), 1)), "_dark2_vars")
     dark2_id = _get_getter("_dark2_id", lambda self: self.sim.particles['dark2']['id'][self.dark2_in_halo_filter], "_dark2_vars")
     dark2_mass = _get_getter("_dark2_mass", lambda self: self.sim.particles['dark2']['mass'][self.dark2_in_halo_filter], "_dark2_vars")
 
+    # Lists of individual particles
     stars = _get_getter("_stars", lambda self: [Star(self, i) for i in range(len(self.star_id))])  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
     gas = _get_getter("_gas", lambda self: [Gas(self, i) for i in range(len(self.gas_id))])
     dark = _get_getter("dark", lambda self: [Dark(self, i) for i in range(len(self.dark_id))])
@@ -348,7 +386,6 @@ class Halo:
             
         return self.center_on_value(new_pos, new_vel)
 
-
     @staticmethod
     def extract_x(array_of_vectors):
         return array_of_vectors[:, 0]
@@ -393,6 +430,7 @@ class Particle(abc.ABC):
     MASS_ATTR = None
     ID_ATTR = None
     DISTANCE_ATTR = None
+    R2D_ATTR = None
     SPEED_ATTR = None
 
     def __init__(self, parent_halo, index_in_halo):
@@ -420,11 +458,15 @@ class Particle(abc.ABC):
         return self.parent_halo.__getattribute__(self.VEL_ATTR)[self.index_in_halo]
 
     @property
-    def vel(self):
+    def distance(self):
         return self.parent_halo.__getattribute__(self.DISTANCE_ATTR)[self.index_in_halo]
 
     @property
-    def vel(self):
+    def r2d(self):
+        return self.parent_halo.__getattribute__(self.R2D_ATTR)[self.index_in_halo]
+
+    @property
+    def speed(self):
         return self.parent_halo.__getattribute__(self.SPEED_ATTR)[self.index_in_halo]
 
     @property
@@ -453,6 +495,7 @@ class Star(Particle):
     MASS_ATTR = "star_mass"
     ID_ATTR = "star_id"
     DISTANCE_ATTR = "star_distance"
+    R2D_ATTR = "star_r2d"
     SPEED_ATTR = "star_speed"
 
     SCALE_FACTOR_ATTR = "star_scale_factor"
@@ -472,6 +515,7 @@ class Gas(Particle):
     MASS_ATTR = "gas_mass"
     ID_ATTR = "gas_id"
     DISTANCE_ATTR = "gas_distance"
+    R2D_ATTR = "gas_r2d"
     SPEED_ATTR = "gas_speed"
 
     MASS_FRACTION_ATTR = "gas_mass_fraction"
@@ -511,6 +555,7 @@ class Dark(Particle):
     MASS_ATTR = "dark_mass"
     ID_ATTR = "dark_id"
     DISTANCE_ATTR = "dark_distance"
+    R2D_ATTR = "dark_r2d"
     SPEED_ATTR = "dark_speed"
     
 class Dark2(Particle):
@@ -519,6 +564,7 @@ class Dark2(Particle):
     MASS_ATTR = "dark2_mass"
     ID_ATTR = "dark2_id"
     DISTANCE_ATTR = "dark2_distance"
+    R2D_ATTR = "dark2_r2d"
     SPEED_ATTR = "dark2_speed"
 
 
