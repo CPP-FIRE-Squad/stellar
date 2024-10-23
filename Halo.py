@@ -1,7 +1,7 @@
 import stellarutil
 import numpy as np
-from typing import Sequence
 import pickle
+import abc
 
 def _get_getter(var_name, func, set_name_to_add_var_name=None):
     @property
@@ -96,7 +96,6 @@ class Halo:
                  sim, 
                  halo_id: int, 
                  species: list[str] | tuple[str] = ("all",),
-                 immediately_load_particles = True,
                  restrict_percentage: float | int | None = 100):
         """Get a new halo object including the selected particles.
 
@@ -155,7 +154,7 @@ class Halo:
     #         self.touch()
     #     return super().__getattribute__(name)
 
-    # TODO: (?) Only generate all this upon first attribute get (in a "touch" method, per se, where the object is just a shell until it's touched)
+    # Do we want to only generate all this upon first attribute get? (in a "touch" method, per se, where the object is just a shell until it's touched)
     hostID = _get_getter("_hostID", lambda self: self.sim.ahf_data.field('hostHalo(2)')[self.halo_id])
     mass = _get_getter("_mass", lambda self: self.sim.get_field('4')[self.halo_id])
     r_max = _get_getter("_r_max", lambda self: self.sim.ahf_data.field('Rmax(13)')[self.halo_id] / self.sim.h)
@@ -300,6 +299,11 @@ class Halo:
     dark2_id = _get_getter("_dark2_id", lambda self: self.sim.particles['dark2']['id'][self.dark2_in_halo_filter], "_dark2_vars")
     dark2_mass = _get_getter("_dark2_mass", lambda self: self.sim.particles['dark2']['mass'][self.dark2_in_halo_filter], "_dark2_vars")
 
+    stars = _get_getter("_stars", lambda self: [Star(self, i) for i in range(len(self.star_id))])  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
+    gas = _get_getter("_gas", lambda self: [Gas(self, i) for i in range(len(self.gas_id))])
+    dark = _get_getter("dark", lambda self: [Dark(self, i) for i in range(len(self.dark_id))])
+    dark2 = _get_getter("dark2", lambda self: [Dark2(self, i) for i in range(len(self.dark2_id))])
+
     def center_on_value(self, new_pos=None, new_vel=None):
         # Get the offset between this current center and new position, and subtract offset from each particle to center on the new position
         if new_pos is not None:
@@ -373,20 +377,7 @@ class Halo:
         if sim:
             loaded_object.sim = sim
         return loaded_object
-    
-    stars = _get_getter("_stars", lambda self: [stellarutil.Star(self.star_pos[i], self.star_mass[i], self.star_scale_factor[i], self.star_vel[i]) for i in range(len(self.star_pos))], "_star_vars")
-    # stars = _get_getter("_stars", lambda self: [Star(self, i) for i in range(len(self.star_id))])  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
-    # gas = _get_getter("_gas", lambda self: [Gas(self, i) for i in range(len(self.gas_id))])
-    # dark = _get_getter("dark", lambda self: [Dark(self, i) for i in range(len(self.dark_id))])
-    # dark2 = _get_getter("dark2", lambda self: [Dark2(self, i) for i in range(len(self.dark2_id))])
 
-
-import abc
-
-
-star_list = halo.stars
-for star in star_list:
-    star.pos
 
 class Particle(abc.ABC):
     # NOTE: This class is only referencing the values stored in the parent ParticleGroup. We could also just store the values in this object.
@@ -396,6 +387,7 @@ class Particle(abc.ABC):
     #     Actions like centering the halo will require an entire new Particles list to be calculated
     #     We would need to store (and thus calculate) *every* attribute, no matter if its used or not. 
     #     Otherwise, if we use the load-on-access functionality like above, we would need to do that for every single star which, when you're only accessing everything once or twice, is very redundant and slow.
+
     POS_ATTR = None
     VEL_ATTR = None
     MASS_ATTR = None
@@ -448,11 +440,11 @@ class Particle(abc.ABC):
         return self.vel[2]
 
     @property
-    def vel(self):
+    def mass(self):
         return self.parent_halo.__getattribute__(self.MASS_ATTR)[self.index_in_halo]
 
     @property
-    def vel(self):
+    def id(self):
         return self.parent_halo.__getattribute__(self.ID_ATTR)[self.index_in_halo]
     
 class Star(Particle):
@@ -462,6 +454,17 @@ class Star(Particle):
     ID_ATTR = "star_id"
     DISTANCE_ATTR = "star_distance"
     SPEED_ATTR = "star_speed"
+
+    SCALE_FACTOR_ATTR = "star_scale_factor"
+    MASS_FRACTION_ATTR = "star_mass_fraction"
+    
+    @property
+    def scale_factor(self):
+        return self.parent_halo.__getattribute__(self.SCALE_FACTOR_ATTR)[self.index_in_halo]  # Don't necessarily need to use __getattribute__, since this isn't gonna have a child class. But I don't care because consistency.
+
+    @property
+    def mass_fraction(self):
+        return self.parent_halo.__getattribute__(self.MASS_FRACTION)[self.index_in_halo]
     
 class Gas(Particle):
     POS_ATTR = "gas_pos"
@@ -470,7 +473,38 @@ class Gas(Particle):
     ID_ATTR = "gas_id"
     DISTANCE_ATTR = "gas_distance"
     SPEED_ATTR = "gas_speed"
-    
+
+    MASS_FRACTION_ATTR = "gas_mass_fraction"
+    DENSITY_ATTR = "gas_density"
+    ELECTRON_FRACTION_ATTR = "gas_electron_fraction"
+    TEMPERATURE_ATTR = "gas_temperature"
+    HYDROGEN_NEUTRAL_FRACTION_ATTR = "gas_hydrogen_neutral_fraction"
+    SIZE_ATTR = "gas_size"
+
+    @property
+    def mass_fraction(self):
+        return self.parent_halo.__getattribute__(self.MASS_FRACTION_ATTR)[self.index_in_halo]
+
+    @property
+    def density(self):
+        return self.parent_halo.__getattribute__(self.DENSITY_ATTR)[self.index_in_halo]
+
+    @property
+    def electron_fraction(self):
+        return self.parent_halo.__getattribute__(self.ELECTRON_FRACTION_ATTR)[self.index_in_halo]
+
+    @property
+    def temperature(self):
+        return self.parent_halo.__getattribute__(self.TEMPERATURE_ATTR)[self.index_in_halo]
+
+    @property
+    def hydrogen_neutral_fraction(self):
+        return self.parent_halo.__getattribute__(self.HYDROGEN_NEUTRAL_FRACTION_ATTR)[self.index_in_halo]
+
+    @property
+    def size(self):
+        return self.parent_halo.__getattribute__(self.SIZE_ATTR)[self.index_in_halo]
+  
 class Dark(Particle):
     POS_ATTR = "dark_pos"
     VEL_ATTR = "dark_vel"
@@ -486,19 +520,6 @@ class Dark2(Particle):
     ID_ATTR = "dark2_id"
     DISTANCE_ATTR = "dark2_distance"
     SPEED_ATTR = "dark2_speed"
-    
-class Gas(Particle):
-    POS_ATTR = "gas_pos"
-
-    DENSITY_ATTR = "gas_density"
-
-    @property
-    def pos(self):
-        return self.parent_halo.gas_pos[self.index_in_halo]
-
-    # @property
-    # def density(self):
-    #     return self.parent_halo.__getattribute__(self.DENSITY_ATTR)[self.index_in_halo]  # Don't necessarily need to use __getattribute__, since this isn't gonna have a child class
 
 
 # Example of need for ParticleGroup:
