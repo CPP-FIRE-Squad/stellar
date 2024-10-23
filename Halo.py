@@ -78,62 +78,6 @@ class Halo:
         ...  # Find boolean mask
         self._attribute = self._attribute[mask]  # For every attribute
     """
-    # Trying to think of ways to not have to just make 26 different getters all doing basically the same thing (except for maybe 3DR and speed, but even those are repeated) (+6 for dark2)
-    # We could do set_attr but I really don't want to do that because it just gets so messy and I don't think that would work well with documentation and IDEs
-    """Example of set_attr to define functions. test_function can then be dyamically generated to quickly create all getters
-
-    class TestClass:
-        def __init__(self, test_variable):
-            self.test_variable = test_variable
-
-    def test_function(self, foo):
-        print(self.test_variable, foo)
-
-    setattr(TestClass, "test_method", test_function)
-
-    a = TestClass(123)
-    a.test_method("bar")
-    """
-    # But, then again, hear me out:
-    """
-    class Halo:
-        star_pos: list[list[float]]  # This line is not required, and simply makes it more intuitive to use this with IDEs
-        '''Array of positions of all the stars in this halo'''  # This appears as a description in VSCode (and likely other IDEs)
-
-        def __init__(self):
-            ...
-
-    attributes = [
-        {"method_name": "star_pos", "variable_name": "_star_pos", "particle_type": "star", "attribute_name": "position", "mask_name": "star_mask"},
-        {"method_name": "gas_vel", "variable_name": "_gas_vel", "particle_type": "gas", "attribute_name": "velocity", "mask_name": "gas_mask"}
-    ]  # I'm just using a dictionary here cause it's easy and nicer to read. This could be a list of lists or objects as well
-
-    for attribute in attributes:
-        method_name, variable_name, particle_type, attribute_name, mask_name = attribute.values()
-        setattr(Halo, variable_name, None)
-
-        # Could also do:
-        # variable_name = f"_{method_name}"
-
-        @property
-        def getter(self):
-            if self.__getattribute__(variable_name) is None:
-                # new_value = self.sim.particles[particle_type][attribute_name][mask_name]
-                new_value = f"{particle_type} {attribute_name}"
-                self.__setattr__(variable_name, new_value)
-                return new_value
-            else:
-                return self.__getattribute__(variable_name)
-            
-        setattr(Halo, method_name, getter)
-
-    a = Halo()
-    print(a.star_pos)
-    print(a.star_pos)
-
-    """
-
-
 
     # New features:
     # Gas, dark, and dark2 are stored
@@ -356,73 +300,6 @@ class Halo:
     dark2_id = _get_getter("_dark2_id", lambda self: self.sim.particles['dark2']['id'][self.dark2_in_halo_filter], "_dark2_vars")
     dark2_mass = _get_getter("_dark2_mass", lambda self: self.sim.particles['dark2']['mass'][self.dark2_in_halo_filter], "_dark2_vars")
 
-    """
-    def set_particles(self, boolean=False):
-        def conditional_attribute(to_include, attribute, enum_value, index_filter=None):
-            if to_include is True or (to_include is not False and enum_value in to_include):
-                return attribute[index_filter] if index_filter is not None else attribute
-            return None
-        
-        if self.incl_stars:
-            self.star_pos = conditional_attribute(self.incl_stars, self.star_pos if boolean else self.sim.particles['star']['position'], ParticleAttrs.POSITION, self.stars_in_halo_filter)
-            if self.star_pos is not None and not boolean: self.star_pos -= self.center_pos
-            self.star_vel = conditional_attribute(self.incl_stars, self.star_vel if boolean else self.sim.particles['star']['velocity'], ParticleAttrs.VELOCITY, self.stars_in_halo_filter)
-            if self.star_vel is not None and not boolean: self.star_vel -= self.center_vel
-            self.star_id = conditional_attribute(self.incl_stars, self.star_id if boolean else self.sim.particles['star']['id'], ParticleAttrs.ID, self.stars_in_halo_filter)
-            self.star_mass = conditional_attribute(self.incl_stars, self.star_mass if boolean else self.sim.particles['star']['mass'], ParticleAttrs.MASS, self.stars_in_halo_filter)
-
-            self.star_scale_factor = conditional_attribute(self.incl_stars, self.star_scale_factor if boolean else self.sim.particles['star']['form.scalefactor'], ParticleAttrs.STAR_SCALE_FACTOR, self.stars_in_halo_filter)
-            self.star_mass_fraction = conditional_attribute(self.incl_stars, self.star_mass_fraction if boolean else self.sim.particles['star']['massfraction'], ParticleAttrs.STAR_OR_GAS_MASS_FRACTION, self.stars_in_halo_filter)
-
-            self.star_distance = conditional_attribute(self.incl_stars, np.sqrt(np.sum(np.square(self.star_pos), 1)), ParticleAttrs.DISTANCE) if self.star_pos is not None and not boolean else self.star_distance[self.stars_in_halo_filter] if self.star_distance is not None else None
-            self.star_speed = conditional_attribute(self.incl_stars, np.sqrt(np.sum(np.square(self.star_vel), 1)), ParticleAttrs.VELOCITY) if self.star_vel is not None and not boolean else self.star_speed[self.stars_in_halo_filter] if self.star_speed is not None else None
-
-        if self.incl_gas:
-            self.gas_pos = conditional_attribute(self.incl_gas, self.gas_pos if boolean else self.sim.particles['gas']['position'], ParticleAttrs.POSITION, self.gas_in_halo_filter)
-            if self.gas_pos is not None and not boolean: self.gas_pos -= self.center_pos
-            self.gas_vel = conditional_attribute(self.incl_gas, self.gas_vel if boolean else self.sim.particles['gas']['velocity'], ParticleAttrs.VELOCITY, self.gas_in_halo_filter)
-            if self.gas_vel is not None and not boolean: self.gas_vel -= self.center_vel
-            self.gas_id = conditional_attribute(self.incl_gas, self.gas_id if boolean else self.sim.particles['gas']['id'], ParticleAttrs.ID, self.gas_in_halo_filter)
-            self.gas_mass = conditional_attribute(self.incl_gas, self.gas_mass if boolean else self.sim.particles['gas']['mass'], ParticleAttrs.MASS, self.gas_in_halo_filter)
-
-            self.gas_mass_fraction = conditional_attribute(self.incl_gas, self.gas_mass_fraction if boolean else self.sim.particles['gas']['massfraction'], ParticleAttrs.STAR_OR_GAS_MASS_FRACTION, self.gas_in_halo_filter)
-            self.gas_density = conditional_attribute(self.incl_gas, self.gas_density if boolean else self.sim.particles['gas']['density'], ParticleAttrs.GAS_DENSITY, self.gas_in_halo_filter)
-            self.gas_electron_fraction = conditional_attribute(self.incl_gas, self.gas_electron_fraction if boolean else self.sim.particles['gas']['electron.fraction'], ParticleAttrs.GAS_ELECTRON_FRACTION, self.gas_in_halo_filter)
-            self.gas_temperature = conditional_attribute(self.incl_gas, self.gas_temperature if boolean else self.sim.particles['gas']['temperature'], ParticleAttrs.GAS_TEMPERATURE, self.gas_in_halo_filter)
-            self.gas_hydrogen_neutral_fraction = conditional_attribute(self.incl_gas, self.gas_hydrogen_neutral_fraction if boolean else self.sim.particles['gas']['hydrogen.neutral.fraction'], ParticleAttrs.GAS_HYDROGEN_NEUTRAL_FRACTION, self.gas_in_halo_filter)
-            self.gas_size = conditional_attribute(self.incl_gas, self.gas_size if boolean else self.sim.particles['gas']['size'], ParticleAttrs.GAS_SIZE, self.gas_in_halo_filter)
-
-            self.gas_distance = conditional_attribute(self.incl_gas, np.sqrt(np.sum(np.square(self.gas_pos), 1)), ParticleAttrs.DISTANCE) if self.gas_pos is not None and not boolean else self.gas_distance[self.gas_in_halo_filter] if self.gas_distance is not None else None
-            self.gas_speed = conditional_attribute(self.incl_gas, np.sqrt(np.sum(np.square(self.gas_vel), 1)), ParticleAttrs.VELOCITY) if self.gas_vel is not None and not boolean else self.gas_speed[self.gas_in_halo_filter] if self.gas_speed is not None else None
-
-        if self.incl_dark:
-            self.dark_pos = conditional_attribute(self.incl_dark, self.dark_pos if boolean else self.sim.particles['dark']['position'], ParticleAttrs.POSITION, self.dark_in_halo_filter)
-            if self.dark_pos is not None and not boolean: self.dark_pos -= self.center_pos
-            self.dark_vel = conditional_attribute(self.incl_dark, self.dark_vel if boolean else self.sim.particles['dark']['velocity'], ParticleAttrs.VELOCITY, self.dark_in_halo_filter)
-            if self.dark_vel is not None and not boolean: self.dark_vel -= self.center_vel
-            self.dark_id = conditional_attribute(self.incl_dark, self.dark_id if boolean else self.sim.particles['dark']['id'], ParticleAttrs.ID, self.dark_in_halo_filter)
-            self.dark_mass = conditional_attribute(self.incl_dark, self.dark_mass if boolean else self.sim.particles['dark']['mass'], ParticleAttrs.MASS, self.dark_in_halo_filter)
-
-            self.dark_distance = conditional_attribute(self.incl_dark, np.sqrt(np.sum(np.square(self.dark_pos), 1)), ParticleAttrs.DISTANCE) if self.dark_pos is not None and not boolean else self.dark_distance[self.dark_in_halo_filter] if self.dark_distance is not None else None
-            self.dark_speed = conditional_attribute(self.incl_dark, np.sqrt(np.sum(np.square(self.dark_vel), 1)), ParticleAttrs.VELOCITY) if self.dark_vel is not None and not boolean else self.dark_speed[self.dark_in_halo_filter] if self.dark_speed is not None else None
-
-        if self.incl_dark2:
-            self.dark2_pos = conditional_attribute(self.incl_dark2, self.dark2_pos if boolean else self.sim.particles['dark2']['position'], ParticleAttrs.POSITION, self.dark2_in_halo_filter)
-            if self.dark2_pos is not None and not boolean: self.dark2_pos -= self.center_pos
-            self.dark2_vel = conditional_attribute(self.incl_dark2, self.dark2_vel if boolean else self.sim.particles['dark2']['velocity'], ParticleAttrs.VELOCITY, self.dark2_in_halo_filter)
-            if self.dark2_vel is not None and not boolean: self.dark2_vel -= self.center_vel
-            self.dark2_id = conditional_attribute(self.incl_dark2, self.dark2_id if boolean else self.sim.particles['dark2']['id'], ParticleAttrs.ID, self.dark2_in_halo_filter)
-            self.dark2_mass = conditional_attribute(self.incl_dark2, self.dark2_mass if boolean else self.sim.particles['dark2']['mass'], ParticleAttrs.MASS, self.dark2_in_halo_filter)
-
-            self.dark2_distance = conditional_attribute(self.incl_dark2, np.sqrt(np.sum(np.square(self.dark2_pos), 1)), ParticleAttrs.DISTANCE) if self.dark2_pos is not None and not boolean else self.dark2_distance[self.dark2_in_halo_filter] if self.dark2_distance is not None else None
-            self.dark2_speed = conditional_attribute(self.incl_dark2, np.sqrt(np.sum(np.square(self.dark2_vel), 1)), ParticleAttrs.VELOCITY) if self.dark2_vel is not None and not boolean else self.dark2_speed[self.dark2_in_halo_filter] if self.dark2_speed is not None else None
-
-        self._stars = None
-        self._particles_have_been_loaded = True
-
-        return self
-    """
-
     def center_on_value(self, new_pos=None, new_vel=None):
         # Get the offset between this current center and new position, and subtract offset from each particle to center on the new position
         if new_pos is not None:
@@ -499,25 +376,10 @@ class Halo:
     
     stars = _get_getter("_stars", lambda self: [stellarutil.Star(self.star_pos[i], self.star_mass[i], self.star_scale_factor[i], self.star_vel[i]) for i in range(len(self.star_pos))], "_star_vars")
     # stars = _get_getter("_stars", lambda self: [Star(self, i) for i in range(len(self.star_id))])  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
-    # COULD also make self._stars not a list and only generate the star objects when the individual one is accessed (through iterating or accessing at index)
-    # Almost like a generator, but where you can access it by index.
-    # On second thought, ignore the last two lines. They would only be more efficient if each star stayed in memory after being generated, by at that point it's too much processing power to make it worth it.
+    # gas = _get_getter("_gas", lambda self: [Gas(self, i) for i in range(len(self.gas_id))])
+    # dark = _get_getter("dark", lambda self: [Dark(self, i) for i in range(len(self.dark_id))])
+    # dark2 = _get_getter("dark2", lambda self: [Dark2(self, i) for i in range(len(self.dark2_id))])
 
-    # Draft for (hopefully) intuitive bulk usage of particles (not necessary, I just thought it might be nice). On second thought, though, this might not really be useful/helpful.
-    def get_gas_values_from_function(self, function):
-        output_array = np.empty(len(self.gas))
-        for i, gas_particle in enumerate(self.gas):
-            output_array[i] = function(gas_particle)
-
-
-
-# Usage:
-def get_2dr(particle):
-    return (particle.x**2 + particle.y**2)**0.5
-
-gas_2dr = halo.get_gas_values_from_function(get_2dr)
-# Or:
-gas_2dr = halo.get_gas_values_from_function(lambda particle: (particle.x**2 + particle.y**2)**0.5)
 
 import abc
 
@@ -527,13 +389,24 @@ for star in star_list:
     star.pos
 
 class Particle(abc.ABC):
-    # POS_ATTR = None
+    # NOTE: This class is only referencing the values stored in the parent ParticleGroup. We could also just store the values in this object.
+    #   Pros of storing values here: 
+    #     Faster to access, since every access of an attribute of a particle requires a __getattribute__ call and array access
+    #   Cons of storing values here: 
+    #     Actions like centering the halo will require an entire new Particles list to be calculated
+    #     We would need to store (and thus calculate) *every* attribute, no matter if its used or not. 
+    #     Otherwise, if we use the load-on-access functionality like above, we would need to do that for every single star which, when you're only accessing everything once or twice, is very redundant and slow.
+    POS_ATTR = None
+    VEL_ATTR = None
+    MASS_ATTR = None
+    ID_ATTR = None
+    DISTANCE_ATTR = None
+    SPEED_ATTR = None
 
-    def __init__(self):
-        self.parent_halo = ...
-        self.index_in_halo = ...
+    def __init__(self, parent_halo, index_in_halo):
+        self.parent_halo = parent_halo
+        self.index_in_halo = index_in_halo
 
-    """
     @property
     def pos(self):
         return self.parent_halo.__getattribute__(self.POS_ATTR)[self.index_in_halo]
@@ -549,7 +422,70 @@ class Particle(abc.ABC):
     @property
     def z(self):
         return self.pos[2]
-    """
+
+    @property
+    def vel(self):
+        return self.parent_halo.__getattribute__(self.VEL_ATTR)[self.index_in_halo]
+
+    @property
+    def vel(self):
+        return self.parent_halo.__getattribute__(self.DISTANCE_ATTR)[self.index_in_halo]
+
+    @property
+    def vel(self):
+        return self.parent_halo.__getattribute__(self.SPEED_ATTR)[self.index_in_halo]
+
+    @property
+    def vx(self):
+        return self.vel[0]
+
+    @property
+    def vy(self):
+        return self.vel[1]
+
+    @property
+    def vz(self):
+        return self.vel[2]
+
+    @property
+    def vel(self):
+        return self.parent_halo.__getattribute__(self.MASS_ATTR)[self.index_in_halo]
+
+    @property
+    def vel(self):
+        return self.parent_halo.__getattribute__(self.ID_ATTR)[self.index_in_halo]
+    
+class Star(Particle):
+    POS_ATTR = "star_pos"
+    VEL_ATTR = "star_vel"
+    MASS_ATTR = "star_mass"
+    ID_ATTR = "star_id"
+    DISTANCE_ATTR = "star_distance"
+    SPEED_ATTR = "star_speed"
+    
+class Gas(Particle):
+    POS_ATTR = "gas_pos"
+    VEL_ATTR = "gas_vel"
+    MASS_ATTR = "gas_mass"
+    ID_ATTR = "gas_id"
+    DISTANCE_ATTR = "gas_distance"
+    SPEED_ATTR = "gas_speed"
+    
+class Dark(Particle):
+    POS_ATTR = "dark_pos"
+    VEL_ATTR = "dark_vel"
+    MASS_ATTR = "dark_mass"
+    ID_ATTR = "dark_id"
+    DISTANCE_ATTR = "dark_distance"
+    SPEED_ATTR = "dark_speed"
+    
+class Dark2(Particle):
+    POS_ATTR = "dark2_pos"
+    VEL_ATTR = "dark2_vel"
+    MASS_ATTR = "dark2_mass"
+    ID_ATTR = "dark2_id"
+    DISTANCE_ATTR = "dark2_distance"
+    SPEED_ATTR = "dark2_speed"
     
 class Gas(Particle):
     POS_ATTR = "gas_pos"
