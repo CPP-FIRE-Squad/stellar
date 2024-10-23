@@ -320,6 +320,42 @@ class Halo:
         self.reset_all_particle_attributes()
         return self
         
+    star_pos = _get_getter("_star_pos", lambda self: self.sim.particles['star']['position'][self.stars_in_halo_filter] - self.center_pos, "_star_vars")
+    star_vel = _get_getter("_star_vel", lambda self: self.sim.particles['star']['velocity'][self.stars_in_halo_filter] - self.center_vel, "_star_vars")
+    star_distance = _get_getter("_star_distance", lambda self: np.sqrt(np.sum(np.square(self.star_pos), 1)), "_star_vars")
+    star_speed = _get_getter("_star_speed", lambda self: np.sqrt(np.sum(np.square(self.star_vel), 1)), "_star_vars")
+    star_id = _get_getter("_star_id", lambda self: self.sim.particles['star']['id'][self.stars_in_halo_filter], "_star_vars")
+    star_mass = _get_getter("_star_mass", lambda self: self.sim.particles['star']['mass'][self.stars_in_halo_filter], "_star_vars")
+    star_scale_factor = _get_getter("_star_scale_factor", lambda self: self.sim.particles['star']['form.scalefactor'][self.stars_in_halo_filter], "_star_vars")
+    star_mass_fraction = _get_getter("_star_mass_fraction", lambda self: self.sim.particles['star']['massfraction'][self.stars_in_halo_filter], "_star_vars")
+
+    gas_pos = _get_getter("_gas_pos", lambda self: self.sim.particles['gas']['position'][self.gas_in_halo_filter] - self.center_pos, "_gas_vars")
+    gas_vel = _get_getter("_gas_vel", lambda self: self.sim.particles['gas']['velocity'][self.gas_in_halo_filter] - self.center_vel, "_gas_vars")
+    gas_distance = _get_getter("_gas_distance", lambda self: np.sqrt(np.sum(np.square(self.gas_pos), 1)), "_gas_vars")
+    gas_speed = _get_getter("_gas_speed", lambda self: np.sqrt(np.sum(np.square(self.gas_vel), 1)), "_gas_vars")
+    gas_id = _get_getter("_gas_id", lambda self: self.sim.particles['gas']['id'][self.gas_in_halo_filter], "_gas_vars")
+    gas_mass = _get_getter("_gas_mass", lambda self: self.sim.particles['gas']['mass'][self.gas_in_halo_filter], "_gas_vars")
+    gas_mass_fraction = _get_getter("_gas_mass_fraction", lambda self: self.sim.particles['gas']['massfraction'][self.gas_in_halo_filter], "_gas_vars")
+    gas_density = _get_getter("_gas_density", lambda self: self.sim.particles['gas']['density'][self.gas_in_halo_filter], "_gas_vars")
+    gas_electron_fraction = _get_getter("_gas_electron_fraction", lambda self: self.sim.particles['gas']['electron.fraction'][self.gas_in_halo_filter], "_gas_vars")
+    gas_temperature = _get_getter("gas_temperature", lambda self: self.sim.particles['gas']['temperature'][self.gas_in_halo_filter], "_gas_vars")
+    gas_hydrogen_neutral_fraction = _get_getter("_gas_hydrogen_neutral_fraction", lambda self: self.sim.particles['gas']['hydrogen.neutral.fraction'][self.gas_in_halo_filter], "_gas_vars")
+    gas_size = _get_getter("_gas_size", lambda self: self.sim.particles['gas']['size'][self.gas_in_halo_filter], "_gas_vars")
+
+    dark_pos = _get_getter("_dark_pos", lambda self: self.sim.particles['dark']['position'][self.dark_in_halo_filter] - self.center_pos, "_dark_vars")
+    dark_vel = _get_getter("_dark_vel", lambda self: self.sim.particles['dark']['velocity'][self.dark_in_halo_filter] - self.center_vel, "_dark_vars")
+    dark_distance = _get_getter("_dark_distance", lambda self: np.sqrt(np.sum(np.square(self.dark_pos), 1)), "_dark_vars")
+    dark_speed = _get_getter("_dark_speed", lambda self: np.sqrt(np.sum(np.square(self.dark_vel), 1)), "_dark_vars")
+    dark_id = _get_getter("_dark_id", lambda self: self.sim.particles['dark']['id'][self.dark_in_halo_filter], "_dark_vars")
+    dark_mass = _get_getter("_dark_mass", lambda self: self.sim.particles['dark']['mass'][self.dark_in_halo_filter], "_dark_vars")
+
+    dark2_pos = _get_getter("_dark2_pos", lambda self: self.sim.particles['dark2']['position'][self.dark2_in_halo_filter] - self.center_pos, "_dark2_vars")
+    dark2_vel = _get_getter("_dark2_vel", lambda self: self.sim.particles['dark2']['velocity'][self.dark2_in_halo_filter] - self.center_vel, "_dark2_vars")
+    dark2_distance = _get_getter("_dark2_distance", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos), 1)), "_dark2_vars")
+    dark2_speed = _get_getter("_dark2_speed", lambda self: np.sqrt(np.sum(np.square(self.dark2_vel), 1)), "_dark2_vars")
+    dark2_id = _get_getter("_dark2_id", lambda self: self.sim.particles['dark2']['id'][self.dark2_in_halo_filter], "_dark2_vars")
+    dark2_mass = _get_getter("_dark2_mass", lambda self: self.sim.particles['dark2']['mass'][self.dark2_in_halo_filter], "_dark2_vars")
+
     """
     def set_particles(self, boolean=False):
         def conditional_attribute(to_include, attribute, enum_value, index_filter=None):
@@ -472,6 +508,8 @@ class Halo:
         output_array = np.empty(len(self.gas))
         for i, gas_particle in enumerate(self.gas):
             output_array[i] = function(gas_particle)
+
+
 
 # Usage:
 def get_2dr(particle):
