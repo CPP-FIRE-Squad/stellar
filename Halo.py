@@ -1,4 +1,4 @@
-import numpy as np, pickle, abc
+import numpy as np, pickle, abc, Particle
 
 # TODO: Make attributes return None if boolean mask is being applied
 
@@ -98,27 +98,7 @@ class Boolean:
 
 
 class ParticleGroup:
-    #TODO: Make custom functions for masking restrictions (i.e. |, ^, etc.). If & is chosen, existing boolean optimizations can be used. 
-    #      Otherwise, just set mask to old_mask <operation> new_mask and call set_particles with boolean=False
     #TODO: Comment code and add docstrings
-
-    #TODO: Make every call that generates particles a getter. Structure, given particle (i.e. star) and attribute (i.e. pos)
-    # My original thought included making self.particle_mask a getter, but I don't think this would be of any use
-    """
-    @property
-    def particle_attribute(self):
-        if self._attribute is None:
-            self._attribute = self.sim.particles["particle"][self.particle_mask]
-        return self._attribute
-        
-    def restrict(self):
-        ...  # Do restrictions, which change self.particle_mask
-        self._attribute = None  # For every attribute
-
-    def apply_AND_boolean_mask():  # If I want to do this (I might just scrap the efficient AND boolean masking anyways)
-        ...  # Find boolean mask
-        self._attribute = self._attribute[mask]  # For every attribute
-    """
 
     # New features:
     # Gas, dark, and dark2 are stored
@@ -299,10 +279,14 @@ class ParticleGroup:
     star_r2d = _get_getter("_star_r2d", lambda self: np.sqrt(np.sum(np.square(self.star_pos[:, [0, 1]]), 1)), "_star_vars")
     star_speed = _get_getter("_star_speed", lambda self: np.sqrt(np.sum(np.square(self.star_vel), 1)), "_star_vars")
     star_id = _get_getter("_star_id", lambda self: self.sim.particles[Species.star]['id'][self.stars_in_halo_filter], "_star_vars")
+    star_id_child = _get_getter("_star_id_child", lambda self: self.sim.particles[Species.star]['id.child'][self.stars_in_halo_filter], "_star_vars")
+    star_id_generation = _get_getter("_star_id_generation", lambda self: self.sim.particles[Species.star]['id.generation'][self.stars_in_halo_filter], "_star_vars")
     star_mass = _get_getter("_star_mass", lambda self: self.sim.particles[Species.star]['mass'][self.stars_in_halo_filter], "_star_vars")
+    # TODO: Add id.child and id.generation to all particle attributes
     
     star_scale_factor = _get_getter("_star_scale_factor", lambda self: self.sim.particles[Species.star]['form.scalefactor'][self.stars_in_halo_filter], "_star_vars")
     star_mass_fraction = _get_getter("_star_mass_fraction", lambda self: self.sim.particles[Species.star]['massfraction'][self.stars_in_halo_filter], "_star_vars")
+    # TODO: What is star scale_factor? Why isn't 'age' in particles['star']? Any correlation, since scale_factor isn't in other implementation but age is.
 
     # Gas attributes
     gas_pos = _get_getter("_gas_pos", lambda self: self.sim.particles[Species.gas]['position'][self.gas_in_halo_filter] - self.center_pos, "_gas_vars")
@@ -313,14 +297,17 @@ class ParticleGroup:
     gas_r2d = _get_getter("_gas_r2d", lambda self: np.sqrt(np.sum(np.square(self.gas_pos[:, [0, 1]]), 1)), "_gas_vars")
     gas_speed = _get_getter("_gas_speed", lambda self: np.sqrt(np.sum(np.square(self.gas_vel), 1)), "_gas_vars")
     gas_id = _get_getter("_gas_id", lambda self: self.sim.particles[Species.gas]['id'][self.gas_in_halo_filter], "_gas_vars")
-
+    gas_id_child = _get_getter("_gas_id_child", lambda self: self.sim.particles[Species.gas]['id.child'][self.gas_in_halo_filter], "_gas_vars")
+    gas_id_generation = _get_getter("_gas_id_generation", lambda self: self.sim.particles[Species.gas]['id.generation'][self.gas_in_halo_filter], "_gas_vars")
     gas_mass = _get_getter("_gas_mass", lambda self: self.sim.particles[Species.gas]['mass'][self.gas_in_halo_filter], "_gas_vars")
+    
     gas_mass_fraction = _get_getter("_gas_mass_fraction", lambda self: self.sim.particles[Species.gas]['massfraction'][self.gas_in_halo_filter], "_gas_vars")
     gas_density = _get_getter("_gas_density", lambda self: self.sim.particles[Species.gas]['density'][self.gas_in_halo_filter], "_gas_vars")
     gas_electron_fraction = _get_getter("_gas_electron_fraction", lambda self: self.sim.particles[Species.gas]['electron.fraction'][self.gas_in_halo_filter], "_gas_vars")
     gas_temperature = _get_getter("gas_temperature", lambda self: self.sim.particles[Species.gas]['temperature'][self.gas_in_halo_filter], "_gas_vars")
     gas_hydrogen_neutral_fraction = _get_getter("_gas_hydrogen_neutral_fraction", lambda self: self.sim.particles[Species.gas]['hydrogen.neutral.fraction'][self.gas_in_halo_filter], "_gas_vars")
     gas_size = _get_getter("_gas_size", lambda self: self.sim.particles[Species.gas]['size'][self.gas_in_halo_filter], "_gas_vars")
+    gas_sfr = _get_getter("_gas_sfr", lambda self: self.sim.particles[Species.gas]['sfr'][self.gas_in_halo_filter], "_gas_vars")
 
     # Dark attributes
     dark_pos = _get_getter("_dark_pos", lambda self: self.sim.particles[Species.dark]['position'][self.dark_in_halo_filter] - self.center_pos, "_dark_vars")
@@ -331,6 +318,8 @@ class ParticleGroup:
     dark_r2d = _get_getter("_dark_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark_pos[:, [0, 1]]), 1)), "_dark_vars")
     dark_speed = _get_getter("_dark_speed", lambda self: np.sqrt(np.sum(np.square(self.dark_vel), 1)), "_dark_vars")
     dark_id = _get_getter("_dark_id", lambda self: self.sim.particles[Species.dark]['id'][self.dark_in_halo_filter], "_dark_vars")
+    dark_id_child = _get_getter("_dark_id_child", lambda self: self.sim.particles[Species.dark]['id.child'][self.dark_in_halo_filter], "_dark_vars")
+    dark_id_generation = _get_getter("_dark_id_generation", lambda self: self.sim.particles[Species.dark]['id.generation'][self.dark_in_halo_filter], "_dark_vars")
     dark_mass = _get_getter("_dark_mass", lambda self: self.sim.particles[Species.dark]['mass'][self.dark_in_halo_filter], "_dark_vars")
 
     # Dark2 attributes
@@ -342,13 +331,15 @@ class ParticleGroup:
     dark2_r2d = _get_getter("_dark2_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos[:, [0, 1]]), 1)), "_dark2_vars")
     dark2_speed = _get_getter("_dark2_speed", lambda self: np.sqrt(np.sum(np.square(self.dark2_vel), 1)), "_dark2_vars")
     dark2_id = _get_getter("_dark2_id", lambda self: self.sim.particles[Species.dark2]['id'][self.dark2_in_halo_filter], "_dark2_vars")
+    dark2_id_child = _get_getter("_dark2_id_child", lambda self: self.sim.particles[Species.dark2]['id.child'][self.dark2_in_halo_filter], "_dark2_vars")
+    dark2_id_generation = _get_getter("_dark2_id_generation", lambda self: self.sim.particles[Species.dark2]['id.generation'][self.dark2_in_halo_filter], "_dark2_vars")
     dark2_mass = _get_getter("_dark2_mass", lambda self: self.sim.particles[Species.dark2]['mass'][self.dark2_in_halo_filter], "_dark2_vars")
 
     # Lists of individual particles
-    stars = _get_getter("_stars", lambda self: [Star(self, i) for i in range(len(self.star_id))])  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
-    gas = _get_getter("_gas", lambda self: [Gas(self, i) for i in range(len(self.gas_id))])
-    dark = _get_getter("_dark", lambda self: [Dark(self, i) for i in range(len(self.dark_id))])
-    dark2 = _get_getter("_dark2", lambda self: [Dark2(self, i) for i in range(len(self.dark2_id))])
+    stars = _get_getter("_stars", lambda self: [Particle.Star(self, i) for i in range(len(self.star_id))])  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
+    gas = _get_getter("_gas", lambda self: [Particle.Gas(self, i) for i in range(len(self.gas_id))])
+    dark = _get_getter("_dark", lambda self: [Particle.ark(self, i) for i in range(len(self.dark_id))])
+    dark2 = _get_getter("_dark2", lambda self: [Particle.Dark2(self, i) for i in range(len(self.dark2_id))])
 
     def center_on_value(self, new_pos=None, new_vel=None):
         # Get the offset between this current center and new position, and subtract offset from each particle to center on the new position
@@ -482,178 +473,3 @@ class Halo(ParticleGroup):
         
     def get_child_halos(self, **halo_kwargs):
         return [Halo(self.sim, child_id, **halo_kwargs) for child_id in self.child_halo_ids]
-        
-
-class Particle(abc.ABC):
-    # NOTE: This class is only referencing the values stored in the parent ParticleGroup. We could also just store the values in this object.
-    #   Pros of storing values here: 
-    #     Faster to access, since every access of an attribute of a particle requires a __getattribute__ call and array access
-    #   Cons of storing values here: 
-    #     Actions like centering the halo will require an entire new Particles list to be calculated
-    #     We would need to store (and thus calculate) *every* attribute, no matter if its used or not. 
-    #     Otherwise, if we use the load-on-access functionality like above, we would need to do that for every single star which, when you're only accessing everything once or twice, is very redundant and slow.
-
-    POS_ATTR = None
-    VEL_ATTR = None
-    MASS_ATTR = None
-    ID_ATTR = None
-    DISTANCE_ATTR = None
-    R2D_ATTR = None
-    SPEED_ATTR = None
-
-    def __init__(self, parent_halo, index_in_halo):
-        self.parent_halo = parent_halo
-        self.index_in_halo = index_in_halo
-
-    @property
-    def pos(self):
-        return self.parent_halo.__getattribute__(self.POS_ATTR)[self.index_in_halo]
-
-    @property
-    def x(self):
-        return self.pos[0]
-
-    @property
-    def y(self):
-        return self.pos[1]
-
-    @property
-    def z(self):
-        return self.pos[2]
-
-    @property
-    def vel(self):
-        return self.parent_halo.__getattribute__(self.VEL_ATTR)[self.index_in_halo]
-
-    @property
-    def distance(self):
-        return self.parent_halo.__getattribute__(self.DISTANCE_ATTR)[self.index_in_halo]
-
-    @property
-    def r2d(self):
-        return self.parent_halo.__getattribute__(self.R2D_ATTR)[self.index_in_halo]
-
-    @property
-    def speed(self):
-        return self.parent_halo.__getattribute__(self.SPEED_ATTR)[self.index_in_halo]
-
-    @property
-    def vx(self):
-        return self.vel[0]
-
-    @property
-    def vy(self):
-        return self.vel[1]
-
-    @property
-    def vz(self):
-        return self.vel[2]
-
-    @property
-    def mass(self):
-        return self.parent_halo.__getattribute__(self.MASS_ATTR)[self.index_in_halo]
-
-    @property
-    def id(self):
-        return self.parent_halo.__getattribute__(self.ID_ATTR)[self.index_in_halo]
-    
-class Star(Particle):
-    POS_ATTR = "star_pos"
-    VEL_ATTR = "star_vel"
-    MASS_ATTR = "star_mass"
-    ID_ATTR = "star_id"
-    DISTANCE_ATTR = "star_distance"
-    R2D_ATTR = "star_r2d"
-    SPEED_ATTR = "star_speed"
-
-    SCALE_FACTOR_ATTR = "star_scale_factor"
-    MASS_FRACTION_ATTR = "star_mass_fraction"
-    
-    @property
-    def scale_factor(self):
-        return self.parent_halo.__getattribute__(self.SCALE_FACTOR_ATTR)[self.index_in_halo]  # Don't necessarily need to use __getattribute__, since this isn't gonna have a child class. But I don't care because consistency.
-
-    @property
-    def mass_fraction(self):
-        return self.parent_halo.__getattribute__(self.MASS_FRACTION)[self.index_in_halo]
-    
-class Gas(Particle):
-    POS_ATTR = "gas_pos"
-    VEL_ATTR = "gas_vel"
-    MASS_ATTR = "gas_mass"
-    ID_ATTR = "gas_id"
-    DISTANCE_ATTR = "gas_distance"
-    R2D_ATTR = "gas_r2d"
-    SPEED_ATTR = "gas_speed"
-
-    MASS_FRACTION_ATTR = "gas_mass_fraction"
-    DENSITY_ATTR = "gas_density"
-    ELECTRON_FRACTION_ATTR = "gas_electron_fraction"
-    TEMPERATURE_ATTR = "gas_temperature"
-    HYDROGEN_NEUTRAL_FRACTION_ATTR = "gas_hydrogen_neutral_fraction"
-    SIZE_ATTR = "gas_size"
-
-    @property
-    def mass_fraction(self):
-        return self.parent_halo.__getattribute__(self.MASS_FRACTION_ATTR)[self.index_in_halo]
-
-    @property
-    def density(self):
-        return self.parent_halo.__getattribute__(self.DENSITY_ATTR)[self.index_in_halo]
-
-    @property
-    def electron_fraction(self):
-        return self.parent_halo.__getattribute__(self.ELECTRON_FRACTION_ATTR)[self.index_in_halo]
-
-    @property
-    def temperature(self):
-        return self.parent_halo.__getattribute__(self.TEMPERATURE_ATTR)[self.index_in_halo]
-
-    @property
-    def hydrogen_neutral_fraction(self):
-        return self.parent_halo.__getattribute__(self.HYDROGEN_NEUTRAL_FRACTION_ATTR)[self.index_in_halo]
-
-    @property
-    def size(self):
-        return self.parent_halo.__getattribute__(self.SIZE_ATTR)[self.index_in_halo]
-  
-class Dark(Particle):
-    POS_ATTR = "dark_pos"
-    VEL_ATTR = "dark_vel"
-    MASS_ATTR = "dark_mass"
-    ID_ATTR = "dark_id"
-    DISTANCE_ATTR = "dark_distance"
-    R2D_ATTR = "dark_r2d"
-    SPEED_ATTR = "dark_speed"
-    
-class Dark2(Particle):
-    POS_ATTR = "dark2_pos"
-    VEL_ATTR = "dark2_vel"
-    MASS_ATTR = "dark2_mass"
-    ID_ATTR = "dark2_id"
-    DISTANCE_ATTR = "dark2_distance"
-    R2D_ATTR = "dark2_r2d"
-    SPEED_ATTR = "dark2_speed"
-
-
-# Example of need for ParticleGroup:
-
-# sim1 = stellarutil.Simulation( ... )
-# sim2 = stellarutil.Simulation( ... )
-
-# star_ids = Halo(sim1, 1, incl_stars=(ParticleAttrs.ID,), restrict_percentage=100).star_id
-# old_stars = ParticleGroup(sim2).restrict_ids(star_ids=star_ids)  # Using a halo class here would be redunant. What halo would we put in?
-
-
-# halo = Halo(sim, 1, incl_stars=False, incl_dark=(ParticleAttrs.POSITION, ParticleAttrs.VELOCITY))
-
-"""
-# def get_value_list()
-
-# a = Halo(sim, 0, (ParticleAttrs.POSITION, ParticleAttrs.VELOCITY))
-
-# a.restrict_percentage(100)
-# a.restrict_ids([0, 1, 2, 5], boolean=True)
-
-# def get_col_from_particle #like can let you color it red if ID is in array
-"""

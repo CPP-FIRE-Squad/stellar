@@ -1,122 +1,175 @@
-import numpy as np
+import abc
 
-class Particle:
+class Particle(abc.ABC):
+    # NOTE: This class is only referencing the values stored in the parent ParticleGroup. We could also just store the values in this object.
+    #   Pros of storing values here: 
+    #     Faster to access, since every access of an attribute of a particle requires a __getattribute__ call and array access
+    #   Cons of storing values here: 
+    #     Actions like centering the halo will require an entire new Particles list to be calculated
+    #     We would need to store (and thus calculate) *every* attribute, no matter if its used or not. 
+    #     Otherwise, if we use the load-on-access functionality like above, we would need to do that for every single star which, when you're only accessing everything once or twice, is very redundant and slow.
 
-    def __init__(self, pos = [0,0,0], mass = 0, vel = [0,0,0], id = 0, idGen = 0, idChild = 0):
-        self.x = pos[0]
-        self.y = pos[1]
-        self.z = pos[2]
-        self.mass = mass
-        self.vx = vel[0]
-        self.vy = vel[1]
-        self.vz = vel[2]
-        self.id = id
-        self.idGen = idGen
-        self.idChild = idChild
-        self.velocity3d = np.sqrt(np.square(vel[0]) + np.square(vel[1]) + np.square(vel[2]))
-        self.velocity2d = np.sqrt(np.square(vel[0]) + np.square(vel[2]))
-        self.r3d = np.sqrt(np.square(pos[0]) + np.square(pos[1]) + np.square(pos[2]))
-        self.r2d = np.sqrt(np.square(pos[0]) + np.square(pos[2]))
+    POS_ATTR = None
+    VEL_ATTR = None
+    MASS_ATTR = None
+    ID_ATTR = None
+    ID_CHILD_ATTR = None
+    ID_GENERATION_ATTR = None
+    DISTANCE_ATTR = None
+    R2D_ATTR = None
+    SPEED_ATTR = None
 
+    def __init__(self, parent_halo, index_in_halo):
+        self.parent_halo = parent_halo
+        self.index_in_halo = index_in_halo
+
+    @property
+    def pos(self):
+        return self.parent_halo.__getattribute__(self.POS_ATTR)[self.index_in_halo]
+
+    @property
+    def x(self):
+        return self.pos[0]
+
+    @property
+    def y(self):
+        return self.pos[1]
+
+    @property
+    def z(self):
+        return self.pos[2]
+
+    @property
+    def vel(self):
+        return self.parent_halo.__getattribute__(self.VEL_ATTR)[self.index_in_halo]
+
+    @property
+    def distance(self):
+        return self.parent_halo.__getattribute__(self.DISTANCE_ATTR)[self.index_in_halo]
+
+    @property
+    def r2d(self):
+        return self.parent_halo.__getattribute__(self.R2D_ATTR)[self.index_in_halo]
+
+    @property
+    def speed(self):
+        return self.parent_halo.__getattribute__(self.SPEED_ATTR)[self.index_in_halo]
+
+    @property
+    def vx(self):
+        return self.vel[0]
+
+    @property
+    def vy(self):
+        return self.vel[1]
+
+    @property
+    def vz(self):
+        return self.vel[2]
+
+    @property
+    def mass(self):
+        return self.parent_halo.__getattribute__(self.MASS_ATTR)[self.index_in_halo]
+
+    @property
+    def id(self):
+        return self.parent_halo.__getattribute__(self.ID_ATTR)[self.index_in_halo]
+    
+    @property
+    def id_child(self):
+        return self.parent_halo.__getattribute__(self.ID_CHILD_ATTR)[self.index_in_halo]
+    
+    @property
+    def id_generation(self):
+        return self.parent_halo.__getattribute__(self.ID_GENERATION_ATTR)[self.index_in_halo]
+    
 class Star(Particle):
-    
-    def __init__(self, pos = [0,0,0], mass = 0, vel = [0,0,0], id = 0, idGen = 0, idChild = 0, age = 0, massfraction = 0):
-        Particle.__init__(self, pos, mass, vel, id, idGen, idChild)
-        self.age = age
-        self.massfraction = massfraction
+    POS_ATTR = "star_pos"
+    VEL_ATTR = "star_vel"
+    MASS_ATTR = "star_mass"
+    ID_ATTR = "star_id"
+    ID_CHILD_ATTR = "star_id_child"
+    ID_GENERATION_ATTR = "star_id_generation"
+    DISTANCE_ATTR = "star_distance"
+    R2D_ATTR = "star_r2d"
+    SPEED_ATTR = "star_speed"
 
+    SCALE_FACTOR_ATTR = "star_scale_factor"
+    MASS_FRACTION_ATTR = "star_mass_fraction"
+    
+    @property
+    def scale_factor(self):
+        return self.parent_halo.__getattribute__(self.SCALE_FACTOR_ATTR)[self.index_in_halo]  # Don't necessarily need to use __getattribute__, since this isn't gonna have a child class. But I don't care because consistency.
+
+    @property
+    def mass_fraction(self):
+        return self.parent_halo.__getattribute__(self.MASS_FRACTION)[self.index_in_halo]
+    
 class Gas(Particle):
-    
-    def __init__(self, pos = [0,0,0], mass = 0, vel = [0,0,0], 
-                 id = 0, idGen = 0, idChild = 0, density = 0, massfraction = 0, 
-                 temp = 0, hydrogenfraction = 0, electronfraction = 0, size = 0, sfr = 0):
-        
-        Particle.__init__(self, pos, mass, vel, id, idGen, idChild)
-        self.density = density
-        self.massfraction = massfraction
-        self.temp = temp
-        self.electronfraction = electronfraction
-        self.hydrogenfraction = hydrogenfraction
-        self.size = size
-        self.sfr = sfr
+    POS_ATTR = "gas_pos"
+    VEL_ATTR = "gas_vel"
+    MASS_ATTR = "gas_mass"
+    ID_ATTR = "gas_id"
+    ID_CHILD_ATTR = "gas_id_child"
+    ID_GENERATION_ATTR = "gas_id_generation"
+    DISTANCE_ATTR = "gas_distance"
+    R2D_ATTR = "gas_r2d"
+    SPEED_ATTR = "gas_speed"
 
+    MASS_FRACTION_ATTR = "gas_mass_fraction"
+    DENSITY_ATTR = "gas_density"
+    ELECTRON_FRACTION_ATTR = "gas_electron_fraction"
+    TEMPERATURE_ATTR = "gas_temperature"
+    HYDROGEN_NEUTRAL_FRACTION_ATTR = "gas_hydrogen_neutral_fraction"
+    SIZE_ATTR = "gas_size"
+    SFR_ATTR = "gas_sfr"
+
+    @property
+    def mass_fraction(self):
+        return self.parent_halo.__getattribute__(self.MASS_FRACTION_ATTR)[self.index_in_halo]
+
+    @property
+    def density(self):
+        return self.parent_halo.__getattribute__(self.DENSITY_ATTR)[self.index_in_halo]
+
+    @property
+    def electron_fraction(self):
+        return self.parent_halo.__getattribute__(self.ELECTRON_FRACTION_ATTR)[self.index_in_halo]
+
+    @property
+    def temperature(self):
+        return self.parent_halo.__getattribute__(self.TEMPERATURE_ATTR)[self.index_in_halo]
+
+    @property
+    def hydrogen_neutral_fraction(self):
+        return self.parent_halo.__getattribute__(self.HYDROGEN_NEUTRAL_FRACTION_ATTR)[self.index_in_halo]
+
+    @property
+    def size(self):
+        return self.parent_halo.__getattribute__(self.SIZE_ATTR)[self.index_in_halo]
+    
+    @property
+    def sfr(self):
+        return self.parent_halo.__getattribute__(self.SFR_ATTR)[self.index_in_halo]
+  
 class Dark(Particle):
-        
-    def __init__(self, pos = [0,0,0], mass = 0, vel = [0,0,0], id = 0, idGen = 0, idChild = 0):
-        Particle.__init__(self, pos, mass, vel, id, idGen, idChild)
-
-
-# Helper function to get all particle data for a given halo and particle type
-def get_particles(sim, particle, halo_index, halo_center, halo_velocity ):
-    # Each particle has a position, velocity, mass, id, idGen, idChild
-    positions = sim.particles[particle]['position'] - halo_center
-    velocities = sim.particles[particle]['velocity'] - halo_velocity
-    masses = sim.particles[particle]['mass']
-    ids = sim.particles[particle]['id']
-    idGens = sim.particles[particle]['id.generation']
-    idChilds = sim.particles[particle]['id.child']
-    # Get the distance of each particle from the center of the indicated dark matter halo
-    distances = np.sqrt(np.square(positions[:,0]) + np.square(positions[:,1]) + np.square(positions[:,2]))
-    # Get the radius of the halo that can actually hold particles. Rhalo, Mhalo, Vhalo <-> Rvir, Mvir, Vvir 
-    rgal = sim.get_field('12')[halo_index]
-    # Filter out all particles that are too far away
-    positions = positions[distances < rgal]
-    velocities = velocities[distances < rgal]
-    masses = masses[distances < rgal]
-    ids = ids[distances < rgal]
-    idGens = idGens[distances < rgal]
-    idChilds = idChilds[distances < rgal]
-
-    # Now that the general data is filtered, we can filter out the specific data for each particle type
-
-    if particle == 'star':
-        # Stars have an additional age and massfraction
-        ages = sim.particles[particle]['age']
-        massfractions = sim.particles[particle]['massfraction']
-        # Filter these out as well
-        ages = ages[distances < rgal]
-        massfractions = massfractions[distances < rgal]
-
-        stars = []
-        for i in range(len(positions)):
-            star = Star(positions[i], masses[i], velocities[i], ids[i], idGens[i], idChilds[i], 
-                        ages[i], massfractions[i])
-            stars.append(star)
-
-        return stars
+    POS_ATTR = "dark_pos"
+    VEL_ATTR = "dark_vel"
+    MASS_ATTR = "dark_mass"
+    ID_ATTR = "dark_id"
+    ID_CHILD_ATTR = "dark_id_child"
+    ID_GENERATION_ATTR = "dark_id_generation"
+    DISTANCE_ATTR = "dark_distance"
+    R2D_ATTR = "dark_r2d"
+    SPEED_ATTR = "dark_speed"
     
-    elif particle == 'gas':
-        # Gas has an additional density, massfraction, temp, hydrogenfraction, electronfraction, size, sfr
-        densities = sim.particles[particle]['density']
-        massfractions = sim.particles[particle]['massfraction']
-        temps = sim.particles[particle]['temperature']
-        hydrogenfractions = sim.particles[particle]['hydrogen.neutral.fraction']
-        electronfractions = sim.particles[particle]['electron.fraction']
-        sizes = sim.particles[particle]['size']
-        sfrs = sim.particles[particle]['sfr']
-        # Filter these out as well
-        densities = densities[distances < rgal]
-        massfractions = massfractions[distances < rgal]
-        temps = temps[distances < rgal]
-        hydrogenfractions = hydrogenfractions[distances < rgal]
-        electronfractions = electronfractions[distances < rgal]
-        sizes = sizes[distances < rgal]
-        sfrs = sfrs[distances < rgal]
-
-        gasses = []
-        for i in range(len(positions)):
-            g = Gas(positions[i], masses[i], velocities[i], ids[i], idGens[i], idChilds[i], 
-                    densities[i], massfractions[i], temps[i], hydrogenfractions[i], electronfractions[i], sizes[i], sfrs[i])
-            gasses.append(g)
-
-        return gasses
-    
-    elif particle == 'dark':
-        
-        darks = []
-        for i in range(len(positions)):
-            d = Dark(positions[i], masses[i], velocities[i], ids[i], idGens[i], idChilds[i])
-            darks.append(d)
-
-        return darks
-    
+class Dark2(Particle):
+    POS_ATTR = "dark2_pos"
+    VEL_ATTR = "dark2_vel"
+    MASS_ATTR = "dark2_mass"
+    ID_ATTR = "dark2_id"
+    ID_CHILD_ATTR = "dark2_id_child"
+    ID_GENERATION_ATTR = "dark2_id_generation"
+    DISTANCE_ATTR = "dark2_distance"
+    R2D_ATTR = "dark2_r2d"
+    SPEED_ATTR = "dark2_speed"
