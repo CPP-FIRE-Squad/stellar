@@ -159,22 +159,15 @@ class ParticleGroup:
 
     # Function to apply a filter getter to all included particles
     def apply_filter(self, filter_getter, boolean=False):
-        """
-        If self.sim is defined:
-            Absolute filter must be saved, as loading any unloaded attributes requires it
-            self.sim can be accessed, but we must first check if it is defined
-            How do we maintain 
-        
-        If self.sim is undefined:
-            Don't try to access sim.particles at all
-            //// Set the saved filter to a relative boolean filter, as this is required for future filters
-            Relative boolean filter does not need to be saved, as we discard all filtered out particles
-                Thus, the only filter we will need to store is the absolute one
-            If sim is undefined, we never use filter. So as long as we're editing attributes, it doesn't matter what happens to the filter as long as it doesn't crash
-            Change all loaded attributes on filter
-        """
 
-        if boolean:
+        if not boolean:
+            if self.incl_stars: self._stars_in_halo_filter = filter_getter(self, Species.star, None)
+            if self.incl_gas: self._gas_in_halo_filter = filter_getter(self, Species.gas, None)
+            if self.incl_dark: self._dark_in_halo_filter = filter_getter(self, Species.dark, None)
+            if self.incl_dark2: self._dark2_in_halo_filter = filter_getter(self, Species.dark2, None)
+
+            self.reset_all_particle_attributes()
+        else:
             # If possible, update the absolute filter stored in class
             if getattr(self, "sim", None) is not None:
                 if self.incl_stars: self._stars_in_halo_filter &= filter_getter(self, Species.star, None)
@@ -194,13 +187,6 @@ class ParticleGroup:
                     attribute = self.__getattribute__(var_name)
                     if attribute is not None:
                         self.__setattr__(var_name, attribute[boolean_filter])
-        else:
-            if self.incl_stars: self._stars_in_halo_filter = filter_getter(self, Species.star, None)
-            if self.incl_gas: self._gas_in_halo_filter = filter_getter(self, Species.gas, None)
-            if self.incl_dark: self._dark_in_halo_filter = filter_getter(self, Species.dark, None)
-            if self.incl_dark2: self._dark2_in_halo_filter = filter_getter(self, Species.dark2, None)
-
-            self.reset_all_particle_attributes()
 
 
         return self
@@ -210,7 +196,7 @@ class ParticleGroup:
         return lambda self, species, particle_positions=None: np.full(
             len(self.sim.particles[species]['position'] if particle_positions is None else particle_positions), 
             all_true_or_false
-        ) # TODO: Get rid of this
+        )
 
     def generate_radius_filter_getter(self, radius):
         def filter_getter(self, species, particle_positions=None):
@@ -439,7 +425,8 @@ class Halo(ParticleGroup):
         # See this_halo_center_pos, but for velocity.
         self.this_halo_center_vel = np.array([self.center_vel[0], self.center_vel[1], self.center_vel[2]])
 
-    hostID = _get_getter("_hostID", lambda self: self.sim.ahf_data.field('hostHalo(2)')[self.halo_id])
+    host_halo_id = _get_getter("_host_halo_id", lambda self: self.sim.ahf_data.field('hostHalo(2)')[self.halo_id])
+    child_halo_ids = _get_getter("_child_halo_ids", lambda self: np.where(self.sim.ahf_data.field('hostHalo(2)') == self.halo_id))
     mass = _get_getter("_mass", lambda self: self.sim.get_field('4')[self.halo_id])
     r_max = _get_getter("_r_max", lambda self: self.sim.ahf_data.field('Rmax(13)')[self.halo_id] / self.sim.h)
     v_max = _get_getter("_v_max", lambda self: self.sim.ahf_data.field('Vmax(17)')[self.halo_id])
@@ -466,6 +453,16 @@ class Halo(ParticleGroup):
     
     def recenter_on_this_halo(self):
         self.center_on_halo(self.halo_id)
+
+    def get_host_halo(self):
+        if self.host_halo_id == -1:
+            return None
+        else:
+            return Halo(self.sim, self.host_halo_id)
+        
+    def get_child_halos(self):
+        return [Halo(self.sim, child_id) for child_id in self.child_halo_ids]
+        
 
 class Particle(abc.ABC):
     # NOTE: This class is only referencing the values stored in the parent ParticleGroup. We could also just store the values in this object.
