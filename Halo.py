@@ -73,12 +73,31 @@ class Species:
     dark2 = "dark2"
     blackhole = "blackhole"
 
+class Boolean:
+    AND = "and"
+    NAND = "nand"
+    OR = "or"
+    NOR = "nor"
+    XOR = "xor"
+    XNOR = "xnor"
+
+    FUNCTION_MAP = {
+        "and": lambda a, b: a & b,
+        "&": lambda a, b: a & b,
+        "nand": lambda a, b: ~(a & b),
+        "or": lambda a, b: a | b,
+        "|": lambda a, b: a | b,
+        "nor": lambda a, b: ~(a | b),
+        "xor": lambda a, b: (a & ~b) | (~a & b),
+        "xnor": lambda a, b: (a | ~b) & (~a | b)
+    }
+
+    @classmethod
+    def get_boolean_function(cls, boolean):
+        return cls.FUNCTION_MAP[boolean.lower()] if isinstance(boolean, str) and boolean in cls.FUNCTION_MAP else boolean
+
+
 class ParticleGroup:
-    #TODO: Make parent ParticleGroup class, make halo class a child w/ extra halo-specific functionality
-    #      Make restrict_radius that does the same as restrict_percentage, just with an absolute radius. Then, restrict_percentage calls it
-    #TODO: Make optional immediately_load parameter
-    #TODO: Add get_host() and get_children(). I'm assuming it should just return Halo & List[Halo], with same include settings (maybe have immediately_load parameter an option)
-    #        or just use *args and **kwargs
     #TODO: Make custom functions for masking restrictions (i.e. |, ^, etc.). If & is chosen, existing boolean optimizations can be used. 
     #      Otherwise, just set mask to old_mask <operation> new_mask and call set_particles with boolean=False
     #TODO: Comment code and add docstrings
@@ -158,23 +177,8 @@ class ParticleGroup:
     dark2_in_halo_filter = _get_getter("_dark2_in_halo_filter", lambda self: self.generate_constant_filter_getter(True)(self, Species.dark2, None))
 
     # Function to apply a filter getter to all included particles
-    def apply_filter(self, filter_getter, boolean=False):
-
-        if not boolean:
-            if self.incl_stars: self._stars_in_halo_filter = filter_getter(self, Species.star, None)
-            if self.incl_gas: self._gas_in_halo_filter = filter_getter(self, Species.gas, None)
-            if self.incl_dark: self._dark_in_halo_filter = filter_getter(self, Species.dark, None)
-            if self.incl_dark2: self._dark2_in_halo_filter = filter_getter(self, Species.dark2, None)
-
-            self.reset_all_particle_attributes()
-        else:
-            # If possible, update the absolute filter stored in class
-            if getattr(self, "sim", None) is not None:
-                if self.incl_stars: self._stars_in_halo_filter &= filter_getter(self, Species.star, None)
-                if self.incl_gas: self._gas_in_halo_filter &= filter_getter(self, Species.gas, None)
-                if self.incl_dark: self._dark_in_halo_filter &= filter_getter(self, Species.dark, None)
-                if self.incl_dark2: self._dark2_in_halo_filter &= filter_getter(self, Species.dark2, None)
-            
+    def apply_filter(self, filter_getter, boolean=None):
+        if isinstance(boolean, str) and boolean.lower() in ["and", "&", Boolean.AND]:
             # Apply the relative filter to all loaded attributes
             particles_to_filter = []
             if self.incl_stars: particles_to_filter.append((self._star_vars, filter_getter(self, Species.star, self.star_pos)))
@@ -187,8 +191,24 @@ class ParticleGroup:
                     attribute = self.__getattribute__(var_name)
                     if attribute is not None:
                         self.__setattr__(var_name, attribute[boolean_filter])
+        else:
+            if getattr(self, "sim", None) is None:
+                raise AttributeError("Must use boolean='and' or '&' or Boolean.AND if sim is undefined, since filtered-out particles are no longer accessible")
+        
+            if boolean is None:
+                if self.incl_stars: self._stars_in_halo_filter = filter_getter(self, Species.star, None)
+                if self.incl_gas: self._gas_in_halo_filter = filter_getter(self, Species.gas, None)
+                if self.incl_dark: self._dark_in_halo_filter = filter_getter(self, Species.dark, None)
+                if self.incl_dark2: self._dark2_in_halo_filter = filter_getter(self, Species.dark2, None)
+            else:
+                boolean = Boolean.get_boolean_function(boolean)
+                if self.incl_stars: self._stars_in_halo_filter = boolean(self._stars_in_halo_filter, filter_getter(self, Species.star, None))
+                if self.incl_gas: self._gas_in_halo_filter = boolean(self._gas_in_halo_filter, filter_getter(self, Species.gas, None))
+                if self.incl_dark: self._dark_in_halo_filter = boolean(self._dark_in_halo_filter, filter_getter(self, Species.dark, None))
+                if self.incl_dark2: self._dark2_in_halo_filter = boolean(self._dark2_in_halo_filter, filter_getter(self, Species.dark2, None))
 
-
+            self.reset_all_particle_attributes()
+        
         return self
     
     # Functions that generate return filter getters (filter getters are to be passed into apply_filter)
@@ -258,16 +278,16 @@ class ParticleGroup:
         return filter_getter
 
     # Functions that quickly generate a filter getter and pass it into apply filter
-    def reset_restriction(self, boolean=False):
+    def reset_restriction(self, boolean=None):
         return self.apply_filter(self.generate_constant_filter_getter(True), boolean)
 
-    def restrict_radius(self, radius: float | int | None, boolean=False):
+    def restrict_radius(self, radius: float | int | None, boolean=None):
         return self.apply_filter(self.generate_radius_filter_getter(radius), boolean)
 
-    def restrict_slice(self, face = 'xy', proj_distance=1, thickness=1, boolean=False):
+    def restrict_slice(self, face = 'xy', proj_distance=1, thickness=1, boolean=None):
         return self.apply_filter(self.generate_slice_filter_getter(face, proj_distance, thickness), boolean)
 
-    def restrict_ids(self, star_ids=[], gas_ids=[], dark_ids=[], dark2_ids=[], boolean=False):
+    def restrict_ids(self, star_ids=[], gas_ids=[], dark_ids=[], dark2_ids=[], boolean=None):
         return self.apply_filter(self.generate_ids_filter_getter(star_ids, gas_ids, dark_ids, dark2_ids), boolean)
    
     # Star attributes
@@ -448,20 +468,20 @@ class Halo(ParticleGroup):
         else:
             return self.generate_radius_filter_getter(self.halo_radius * (percentage / 100))
         
-    def restrict_percentage(self, percentage: float | int | None, boolean=False):
+    def restrict_percentage(self, percentage: float | int | None, boolean=None):
         return self.apply_filter(self.generate_percentage_filter_getter(percentage), boolean)
     
     def recenter_on_this_halo(self):
         self.center_on_halo(self.halo_id)
 
-    def get_host_halo(self):
+    def get_host_halo(self, **halo_kwargs):
         if self.host_halo_id == -1:
             return None
         else:
-            return Halo(self.sim, self.host_halo_id)
+            return Halo(self.sim, self.host_halo_id, **halo_kwargs)
         
-    def get_child_halos(self):
-        return [Halo(self.sim, child_id) for child_id in self.child_halo_ids]
+    def get_child_halos(self, **halo_kwargs):
+        return [Halo(self.sim, child_id, **halo_kwargs) for child_id in self.child_halo_ids]
         
 
 class Particle(abc.ABC):
