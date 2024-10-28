@@ -1,4 +1,11 @@
-import numpy as np, pickle, abc, Particle
+from __future__ import annotations
+import numpy as np, pickle, Particle
+from numpy.typing import NDArray
+from typing import Sequence, Union
+
+# TODO: I'm counting particles by len(self.star_id) or len(self.star_pos). Make a variable that stores this instead, without having to access attributes
+# TODO: Make a variable/getter/method to check if a given particle is included. Currently i'm doing if self.sim and Species.particle in self.sim.particles
+#   Some cases could also just use n_particles == 0
 
 # TODO: Make attributes return None if boolean mask is being applied
 
@@ -112,9 +119,11 @@ class ParticleGroup:
     # Halo initialization is in halo class
     # General optimizations (with how values are calculated, etc.)
     # Extract_x, y, z for getting values from array of vectors
+    # All methods return the class, for method chaining (i.e. halo = Halo(...).restrict_slice(...).restrict_ids(...))
 
-    def __init__(self, sim, species: list[str] | tuple[str] = ("all",)):
-        """Get a new halo object including the selected particles.
+    def __init__(self, sim, species: Sequence[str] = ("all",)):
+        """Get a new particle group object representing a user-defined set of particles in the provided simulation. 
+        Initially contains all particles, but restrictions can be called on this object to filter specific particles.
 
         :param sim: The Sim object to extract halo from.
         :param halo_id: The ID of the halo to extract.
@@ -151,30 +160,40 @@ class ParticleGroup:
         return self
 
     # Filters (arrays of booleans that filter which particles are being stored)
-    stars_in_halo_filter = _get_getter("_stars_in_halo_filter", lambda self: self.generate_constant_filter_getter(True)(self, Species.star, None))
-    gas_in_halo_filter = _get_getter("_gas_in_halo_filter", lambda self: self.generate_constant_filter_getter(True)(self, Species.gas, None))
-    dark_in_halo_filter = _get_getter("_dark_in_halo_filter", lambda self: self.generate_constant_filter_getter(True)(self, Species.dark, None))
-    dark2_in_halo_filter = _get_getter("_dark2_in_halo_filter", lambda self: self.generate_constant_filter_getter(True)(self, Species.dark2, None))
+    stars_in_halo_filter: NDArray[bool] = _get_getter("_stars_in_halo_filter", lambda self: self.generate_constant_filter_getter(True)(self, Species.star, None))
+    gas_in_halo_filter: NDArray[bool] = _get_getter("_gas_in_halo_filter", lambda self: self.generate_constant_filter_getter(True)(self, Species.gas, None))
+    dark_in_halo_filter: NDArray[bool] = _get_getter("_dark_in_halo_filter", lambda self: self.generate_constant_filter_getter(True)(self, Species.dark, None))
+    dark2_in_halo_filter: NDArray[bool] = _get_getter("_dark2_in_halo_filter", lambda self: self.generate_constant_filter_getter(True)(self, Species.dark2, None))
 
     # Function to apply a filter getter to all included particles
-    def apply_filter(self, filter_getter, boolean=None):
+    def apply_filter(self, filter_getter, boolean=None) -> ParticleGroup:
+
         if isinstance(boolean, str) and boolean.lower() in ["and", "&", Boolean.AND]:
             # Apply the relative filter to all loaded attributes
             particles_to_filter = []
-            if self.incl_stars: particles_to_filter.append((self._star_vars, filter_getter(self, Species.star, self.star_pos)))
-            if self.incl_gas: particles_to_filter.append((self._gas_vars, filter_getter(self, Species.gas, self.gas_pos)))
-            if self.incl_dark: particles_to_filter.append((self._dark_vars, filter_getter(self, Species.dark, self.dark_pos)))
-            if self.incl_dark2: particles_to_filter.append((self._dark2_vars, filter_getter(self, Species.dark2, self.dark2_pos)))
+            if self.incl_stars: particles_to_filter.append((Species.star, self._star_vars, filter_getter(self, Species.star, self.star_pos)))
+            if self.incl_gas: particles_to_filter.append((Species.gas, self._gas_vars, filter_getter(self, Species.gas, self.gas_pos)))
+            if self.incl_dark: particles_to_filter.append((Species.dark, self._dark_vars, filter_getter(self, Species.dark, self.dark_pos)))
+            if self.incl_dark2: particles_to_filter.append((Species.dark2, self._dark2_vars, filter_getter(self, Species.dark2, self.dark2_pos)))
 
-            for var_set, boolean_filter in particles_to_filter:
+            for species, var_set, boolean_filter in particles_to_filter:
+                num_of_particle = None
                 for var_name in var_set:
                     attribute = self.__getattribute__(var_name)
                     if attribute is not None:
-                        self.__setattr__(var_name, attribute[boolean_filter])
+                        new_attr = attribute[boolean_filter]
+                        self.__setattr__(var_name, new_attr)
+                    
+                        if num_of_particle is None: num_of_particle = len(new_attr)
+
+                if species == Species.star and num_of_particle is not None: self.num_stars_in_filter = num_of_particle
+                if species == Species.gas and num_of_particle is not None: self.num_gas_in_filter = num_of_particle
+                if species == Species.dark and num_of_particle is not None: self.num_dark_in_filter = num_of_particle
+                if species == Species.dark2 and num_of_particle is not None: self.num_dark2_in_filter = num_of_particle
+
         else:
             if getattr(self, "sim", None) is None:
                 raise AttributeError("Must use boolean='and' or '&' or Boolean.AND if sim is undefined, since filtered-out particles are no longer accessible")
-        
             if boolean is None:
                 if self.incl_stars: self._stars_in_halo_filter = filter_getter(self, Species.star, None)
                 if self.incl_gas: self._gas_in_halo_filter = filter_getter(self, Species.gas, None)
@@ -187,8 +206,14 @@ class ParticleGroup:
                 if self.incl_dark: self._dark_in_halo_filter = boolean(self._dark_in_halo_filter, filter_getter(self, Species.dark, None))
                 if self.incl_dark2: self._dark2_in_halo_filter = boolean(self._dark2_in_halo_filter, filter_getter(self, Species.dark2, None))
 
+            if self.incl_stars: self.num_stars_in_filter = np.count_nonzero(self._stars_in_halo_filter)
+            if self.incl_gas: self.num_gas_in_filter = np.count_nonzero(self._gas_in_halo_filter)
+            if self.incl_dark: self.num_dark_in_filter = np.count_nonzero(self._dark_in_halo_filter)
+            if self.incl_dark2: self.num_dark2_in_filter = np.count_nonzero(self._dark2_in_halo_filter)
+
             self.reset_all_particle_attributes()
         
+
         return self
     
     # Functions that generate return filter getters (filter getters are to be passed into apply_filter)
@@ -202,6 +227,7 @@ class ParticleGroup:
         def filter_getter(self, species, particle_positions=None):
             all_rel_particle_pos = (self.sim.particles[species]['position'] - self.center_pos) \
                 if particle_positions is None else particle_positions
+            print(species, all_rel_particle_pos)
                 
             particle_pos_sum_of_squares = np.sum(np.square(all_rel_particle_pos), 1)
             return particle_pos_sum_of_squares < radius**2
@@ -257,91 +283,150 @@ class ParticleGroup:
 
         return filter_getter
 
+    def generate_quantity_filter_getter(self, star_num=0, gas_num=0, dark_num=0, dark2_num=0):
+        num_map = {Species.star: star_num, Species.gas: gas_num, Species.dark: dark_num, Species.dark2: dark2_num}
+
+        def filter_getter(self, species, particle_positions=None):
+            all_rel_particle_pos = (self.sim.particles[species]['position'] - self.center_pos) \
+                if particle_positions is None else particle_positions
+            
+            quantity = num_map[species]
+
+            if quantity == 0:
+                return self.generate_constant_filter_getter(False)(self, species, particle_positions)
+            elif quantity >= len(all_rel_particle_pos):
+                return self.generate_constant_filter_getter(True)(self, species, particle_positions)
+            
+            true_values = np.full(quantity, True)
+            false_values = np.full(len(all_rel_particle_pos) - quantity, False)
+            all_values = np.concatenate([true_values, false_values])
+            np.random.shuffle(all_values)
+            return all_values
+
+        return filter_getter
+    
+    def generate_quantity_by_percentage_filter_getter(self, star_percent=0, gas_percent=0, dark_percent=0, dark2_percent=0):
+        return self.generate_quantity_filter_getter(
+            int(self.num_stars_in_filter * star_percent / 100) if self.star_id is not None else 0,
+            int(self.num_gas_in_filter * gas_percent / 100) if self.gas_id is not None else 0,
+            int(self.num_dark_in_filter * dark_percent / 100) if self.dark_id is not None else 0,
+            int(self.num_dark2_in_filter * dark2_percent / 100) if self.dark2_id is not None else 0,
+        )
+
+    def generate_proportional_quantity_filter(self, total_quantity, star_weight=1, gas_weight=1, dark_weight=1, dark2_weight=1):
+        num_stars = self.num_stars_in_filter * star_weight if self.star_id is not None else 0
+        num_gas = self.num_gas_in_filter * gas_weight if self.gas_id is not None else 0
+        num_dark = self.num_dark_in_filter * dark_weight if self.dark_id is not None else 0
+        num_dark2 = self.num_dark2_in_filter * dark2_weight if self.dark2_id is not None else 0
+
+        # print(num_dark2)
+
+        total_num = num_stars + num_gas + num_dark + num_dark2
+
+        if total_num == 0:
+            return self.generate_constant_filter_getter(False)
+        
+        return self.generate_quantity_filter_getter(
+            int(num_stars / total_num * total_quantity),
+            int(num_gas / total_num * total_quantity),
+            int(num_dark / total_num * total_quantity),
+            int(num_dark2 / total_num * total_quantity)
+        )
+        
+
     # Functions that quickly generate a filter getter and pass it into apply filter
-    def reset_restriction(self, boolean=None):
+    def reset_restriction(self, boolean=None) -> ParticleGroup:
         return self.apply_filter(self.generate_constant_filter_getter(True), boolean)
 
-    def restrict_radius(self, radius: float | int | None, boolean=None):
+    def restrict_radius(self, radius: Union[float, int, None], boolean=None) -> ParticleGroup:
         return self.apply_filter(self.generate_radius_filter_getter(radius), boolean)
 
-    def restrict_slice(self, face = 'xy', proj_distance=1, thickness=1, boolean=None):
+    def restrict_slice(self, face = 'xy', proj_distance=1, thickness=1, boolean=None) -> ParticleGroup:
         return self.apply_filter(self.generate_slice_filter_getter(face, proj_distance, thickness), boolean)
 
-    def restrict_ids(self, star_ids=[], gas_ids=[], dark_ids=[], dark2_ids=[], boolean=None):
+    def restrict_ids(self, star_ids=[], gas_ids=[], dark_ids=[], dark2_ids=[], boolean=None) -> ParticleGroup:
         return self.apply_filter(self.generate_ids_filter_getter(star_ids, gas_ids, dark_ids, dark2_ids), boolean)
+
+    def restrict_quantity(self, star_num=0, gas_num=0, dark_num=0, dark2_num=0, boolean=None) -> ParticleGroup:
+        return self.apply_filter(self.generate_quantity_filter_getter(star_num, gas_num, dark_num, dark2_num), boolean)
+
+    def restrict_quantity_by_percentage(self, star_percent=0, gas_percent=0, dark_percent=0, dark2_percent=0, boolean=None) -> ParticleGroup:
+        return self.apply_filter(self.generate_quantity_by_percentage_filter_getter(star_percent, gas_percent, dark_percent, dark2_percent), boolean)
+
+    def restrict_quantity_proportionally(self, total_quantity, star_weight=1, gas_weight=1, dark_weight=1, dark2_weight=1, boolean=None) -> ParticleGroup:
+        return self.apply_filter(self.generate_proportional_quantity_filter(total_quantity, star_weight, gas_weight, dark_weight, dark2_weight), boolean)
    
     # Star attributes
-    star_pos = _get_getter("_star_pos", lambda self: self.sim.particles[Species.star]['position'][self.stars_in_halo_filter] - self.center_pos, "_star_vars")
-    star_x, star_y, star_z = [property(lambda self: self.star_pos[:, i]) for i in range(3)]
-    star_vel = _get_getter("_star_vel", lambda self: self.sim.particles[Species.star]['velocity'][self.stars_in_halo_filter] - self.center_vel, "_star_vars")
-    star_vx, star_vy, star_vz = [property(lambda self: self.star_vel[:, i]) for i in range(3)]
-    star_distance = _get_getter("_star_distance", lambda self: np.sqrt(np.sum(np.square(self.star_pos), 1)), "_star_vars")
-    star_r2d = _get_getter("_star_r2d", lambda self: np.sqrt(np.sum(np.square(self.star_pos[:, [0, 1]]), 1)), "_star_vars")
-    star_speed = _get_getter("_star_speed", lambda self: np.sqrt(np.sum(np.square(self.star_vel), 1)), "_star_vars")
-    star_id = _get_getter("_star_id", lambda self: self.sim.particles[Species.star]['id'][self.stars_in_halo_filter], "_star_vars")
-    star_id_child = _get_getter("_star_id_child", lambda self: self.sim.particles[Species.star]['id.child'][self.stars_in_halo_filter], "_star_vars")
-    star_id_generation = _get_getter("_star_id_generation", lambda self: self.sim.particles[Species.star]['id.generation'][self.stars_in_halo_filter], "_star_vars")
-    star_mass = _get_getter("_star_mass", lambda self: self.sim.particles[Species.star]['mass'][self.stars_in_halo_filter], "_star_vars")
-    # TODO: Add id.child and id.generation to all particle attributes
+    star_pos: NDArray[np.float64] = _get_getter("_star_pos", lambda self: self.sim.particles[Species.star]['position'][self.stars_in_halo_filter] - self.center_pos if self.sim and Species.star in self.sim.particles else None, "_star_vars")
+    star_x, star_y, star_z = [property(lambda self: self.star_pos[:, i] if self.sim and Species.star in self.sim.particles else None) for i in range(3)]
+    star_vel: NDArray[np.float32] = _get_getter("_star_vel", lambda self: self.sim.particles[Species.star]['velocity'][self.stars_in_halo_filter] - self.center_vel if self.sim and Species.star in self.sim.particles else None, "_star_vars")
+    star_vx, star_vy, star_vz = [property(lambda self: self.star_vel[:, i] if self.sim and Species.star in self.sim.particles else None) for i in range(3)]
+    star_distance: NDArray[np.float64] = _get_getter("_star_distance", lambda self: np.sqrt(np.sum(np.square(self.star_pos), 1)) if self.sim and Species.star in self.sim.particles else None, "_star_vars")
+    star_r2d: NDArray[np.float64] = _get_getter("_star_r2d", lambda self: np.sqrt(np.sum(np.square(self.star_pos[:, [0, 1]]), 1)) if self.sim and Species.star in self.sim.particles else None, "_star_vars")
+    star_speed: NDArray[np.float32] = _get_getter("_star_speed", lambda self: np.sqrt(np.sum(np.square(self.star_vel), 1)) if self.sim and Species.star in self.sim.particles else None, "_star_vars")
+    star_id: NDArray[np.uint32] = _get_getter("_star_id", lambda self: self.sim.particles[Species.star]['id'][self.stars_in_halo_filter] if self.sim and Species.star in self.sim.particles else None, "_star_vars")
+    star_id_child: NDArray[np.uint8] = _get_getter("_star_id_child", lambda self: self.sim.particles[Species.star]['id.child'][self.stars_in_halo_filter] if self.sim and Species.star in self.sim.particles else None, "_star_vars")
+    star_id_generation: NDArray[np.uint8] = _get_getter("_star_id_generation", lambda self: self.sim.particles[Species.star]['id.generation'][self.stars_in_halo_filter] if self.sim and Species.star in self.sim.particles else None, "_star_vars")
+    star_mass: NDArray[np.float32] = _get_getter("_star_mass", lambda self: self.sim.particles[Species.star]['mass'][self.stars_in_halo_filter] if self.sim and Species.star in self.sim.particles else None, "_star_vars")
     
-    star_scale_factor = _get_getter("_star_scale_factor", lambda self: self.sim.particles[Species.star]['form.scalefactor'][self.stars_in_halo_filter], "_star_vars")
-    star_mass_fraction = _get_getter("_star_mass_fraction", lambda self: self.sim.particles[Species.star]['massfraction'][self.stars_in_halo_filter], "_star_vars")
+    star_scale_factor: NDArray[np.float32] = _get_getter("_star_scale_factor", lambda self: self.sim.particles[Species.star]['form.scalefactor'][self.stars_in_halo_filter] if self.sim and Species.star in self.sim.particles else None, "_star_vars")
+    star_mass_fraction: NDArray[np.float32] = _get_getter("_star_mass_fraction", lambda self: self.sim.particles[Species.star]['massfraction'][self.stars_in_halo_filter] if self.sim and Species.star in self.sim.particles else None, "_star_vars")
     # TODO: What is star scale_factor? Why isn't 'age' in particles['star']? Any correlation, since scale_factor isn't in other implementation but age is.
 
     # Gas attributes
-    gas_pos = _get_getter("_gas_pos", lambda self: self.sim.particles[Species.gas]['position'][self.gas_in_halo_filter] - self.center_pos, "_gas_vars")
-    gas_x, gas_y, gas_z = [property(lambda self: self.gas_pos[:, i]) for i in range(3)]
-    gas_vel = _get_getter("_gas_vel", lambda self: self.sim.particles[Species.gas]['velocity'][self.gas_in_halo_filter] - self.center_vel, "_gas_vars")
-    gas_vx, gas_vy, gas_vz = [property(lambda self: self.gas_vel[:, i]) for i in range(3)]
-    gas_distance = _get_getter("_gas_distance", lambda self: np.sqrt(np.sum(np.square(self.gas_pos), 1)), "_gas_vars")
-    gas_r2d = _get_getter("_gas_r2d", lambda self: np.sqrt(np.sum(np.square(self.gas_pos[:, [0, 1]]), 1)), "_gas_vars")
-    gas_speed = _get_getter("_gas_speed", lambda self: np.sqrt(np.sum(np.square(self.gas_vel), 1)), "_gas_vars")
-    gas_id = _get_getter("_gas_id", lambda self: self.sim.particles[Species.gas]['id'][self.gas_in_halo_filter], "_gas_vars")
-    gas_id_child = _get_getter("_gas_id_child", lambda self: self.sim.particles[Species.gas]['id.child'][self.gas_in_halo_filter], "_gas_vars")
-    gas_id_generation = _get_getter("_gas_id_generation", lambda self: self.sim.particles[Species.gas]['id.generation'][self.gas_in_halo_filter], "_gas_vars")
-    gas_mass = _get_getter("_gas_mass", lambda self: self.sim.particles[Species.gas]['mass'][self.gas_in_halo_filter], "_gas_vars")
+    gas_pos: NDArray[np.float64] = _get_getter("_gas_pos", lambda self: self.sim.particles[Species.gas]['position'][self.gas_in_halo_filter] - self.center_pos if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_x, gas_y, gas_z = [property(lambda self: self.gas_pos[:, i] if self.sim and Species.gas in self.sim.particles else None) for i in range(3)]
+    gas_vel: NDArray[np.float32] = _get_getter("_gas_vel", lambda self: self.sim.particles[Species.gas]['velocity'][self.gas_in_halo_filter] - self.center_vel if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_vx, gas_vy, gas_vz = [property(lambda self: self.gas_vel[:, i] if self.sim and Species.gas in self.sim.particles else None) for i in range(3)]
+    gas_distance: NDArray[np.float64] = _get_getter("_gas_distance", lambda self: np.sqrt(np.sum(np.square(self.gas_pos), 1)) if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_r2d: NDArray[np.float64] = _get_getter("_gas_r2d", lambda self: np.sqrt(np.sum(np.square(self.gas_pos[:, [0, 1]]), 1)) if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_speed: NDArray[np.float32] = _get_getter("_gas_speed", lambda self: np.sqrt(np.sum(np.square(self.gas_vel), 1)) if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_id: NDArray[np.uint32] = _get_getter("_gas_id", lambda self: self.sim.particles[Species.gas]['id'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_id_child: NDArray[np.uint8] = _get_getter("_gas_id_child", lambda self: self.sim.particles[Species.gas]['id.child'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_id_generation: NDArray[np.uint8] = _get_getter("_gas_id_generation", lambda self: self.sim.particles[Species.gas]['id.generation'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_mass: NDArray[np.float32] = _get_getter("_gas_mass", lambda self: self.sim.particles[Species.gas]['mass'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
     
-    gas_mass_fraction = _get_getter("_gas_mass_fraction", lambda self: self.sim.particles[Species.gas]['massfraction'][self.gas_in_halo_filter], "_gas_vars")
-    gas_density = _get_getter("_gas_density", lambda self: self.sim.particles[Species.gas]['density'][self.gas_in_halo_filter], "_gas_vars")
-    gas_electron_fraction = _get_getter("_gas_electron_fraction", lambda self: self.sim.particles[Species.gas]['electron.fraction'][self.gas_in_halo_filter], "_gas_vars")
-    gas_temperature = _get_getter("gas_temperature", lambda self: self.sim.particles[Species.gas]['temperature'][self.gas_in_halo_filter], "_gas_vars")
-    gas_hydrogen_neutral_fraction = _get_getter("_gas_hydrogen_neutral_fraction", lambda self: self.sim.particles[Species.gas]['hydrogen.neutral.fraction'][self.gas_in_halo_filter], "_gas_vars")
-    gas_size = _get_getter("_gas_size", lambda self: self.sim.particles[Species.gas]['size'][self.gas_in_halo_filter], "_gas_vars")
-    gas_sfr = _get_getter("_gas_sfr", lambda self: self.sim.particles[Species.gas]['sfr'][self.gas_in_halo_filter], "_gas_vars")
+    gas_mass_fraction: NDArray[np.float32] = _get_getter("_gas_mass_fraction", lambda self: self.sim.particles[Species.gas]['massfraction'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_density: NDArray[np.float32] = _get_getter("_gas_density", lambda self: self.sim.particles[Species.gas]['density'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_electron_fraction: NDArray[np.float32] = _get_getter("_gas_electron_fraction", lambda self: self.sim.particles[Species.gas]['electron.fraction'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_temperature: NDArray[np.float32] = _get_getter("gas_temperature", lambda self: self.sim.particles[Species.gas]['temperature'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_hydrogen_neutral_fraction: NDArray[np.float32] = _get_getter("_gas_hydrogen_neutral_fraction", lambda self: self.sim.particles[Species.gas]['hydrogen.neutral.fraction'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_size: NDArray[np.float32] = _get_getter("_gas_size", lambda self: self.sim.particles[Species.gas]['size'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
+    gas_sfr: NDArray[np.float32] = _get_getter("_gas_sfr", lambda self: self.sim.particles[Species.gas]['sfr'][self.gas_in_halo_filter] if self.sim and Species.gas in self.sim.particles else None, "_gas_vars")
 
     # Dark attributes
-    dark_pos = _get_getter("_dark_pos", lambda self: self.sim.particles[Species.dark]['position'][self.dark_in_halo_filter] - self.center_pos, "_dark_vars")
-    dark_x, dark_y, dark_z = [property(lambda self: self.dark_pos[:, i]) for i in range(3)]
-    dark_vel = _get_getter("_dark_vel", lambda self: self.sim.particles[Species.dark]['velocity'][self.dark_in_halo_filter] - self.center_vel, "_dark_vars")
-    dark_vx, dark_vy, dark_vz = [property(lambda self: self.dark_vel[:, i]) for i in range(3)]
-    dark_distance = _get_getter("_dark_distance", lambda self: np.sqrt(np.sum(np.square(self.dark_pos), 1)), "_dark_vars")
-    dark_r2d = _get_getter("_dark_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark_pos[:, [0, 1]]), 1)), "_dark_vars")
-    dark_speed = _get_getter("_dark_speed", lambda self: np.sqrt(np.sum(np.square(self.dark_vel), 1)), "_dark_vars")
-    dark_id = _get_getter("_dark_id", lambda self: self.sim.particles[Species.dark]['id'][self.dark_in_halo_filter], "_dark_vars")
-    dark_id_child = _get_getter("_dark_id_child", lambda self: self.sim.particles[Species.dark]['id.child'][self.dark_in_halo_filter], "_dark_vars")
-    dark_id_generation = _get_getter("_dark_id_generation", lambda self: self.sim.particles[Species.dark]['id.generation'][self.dark_in_halo_filter], "_dark_vars")
-    dark_mass = _get_getter("_dark_mass", lambda self: self.sim.particles[Species.dark]['mass'][self.dark_in_halo_filter], "_dark_vars")
+    dark_pos: NDArray[np.float64] = _get_getter("_dark_pos", lambda self: self.sim.particles[Species.dark]['position'][self.dark_in_halo_filter] - self.center_pos if self.sim and Species.dark in self.sim.particles else None, "_dark_vars")
+    dark_x, dark_y, dark_z = [property(lambda self: self.dark_pos[:, i] if self.sim and Species.dark in self.sim.particles else None) for i in range(3)]
+    dark_vel: NDArray[np.float32] = _get_getter("_dark_vel", lambda self: self.sim.particles[Species.dark]['velocity'][self.dark_in_halo_filter] - self.center_vel if self.sim and Species.dark in self.sim.particles else None, "_dark_vars")
+    dark_vx, dark_vy, dark_vz = [property(lambda self: self.dark_vel[:, i] if self.sim and Species.dark in self.sim.particles else None) for i in range(3)]
+    dark_distance: NDArray[np.float64] = _get_getter("_dark_distance", lambda self: np.sqrt(np.sum(np.square(self.dark_pos), 1)) if self.sim and Species.dark in self.sim.particles else None, "_dark_vars")
+    dark_r2d: NDArray[np.float64] = _get_getter("_dark_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark_pos[:, [0, 1]]), 1)) if self.sim and Species.dark in self.sim.particles else None, "_dark_vars")
+    dark_speed: NDArray[np.float32] = _get_getter("_dark_speed", lambda self: np.sqrt(np.sum(np.square(self.dark_vel), 1)) if self.sim and Species.dark in self.sim.particles else None, "_dark_vars")
+    dark_id: NDArray[np.uint32] = _get_getter("_dark_id", lambda self: self.sim.particles[Species.dark]['id'][self.dark_in_halo_filter] if self.sim and Species.dark in self.sim.particles else None, "_dark_vars")
+    dark_id_child: NDArray[np.uint8] = _get_getter("_dark_id_child", lambda self: self.sim.particles[Species.dark]['id.child'][self.dark_in_halo_filter] if self.sim and Species.dark in self.sim.particles else None, "_dark_vars")
+    dark_id_generation: NDArray[np.uint8] = _get_getter("_dark_id_generation", lambda self: self.sim.particles[Species.dark]['id.generation'][self.dark_in_halo_filter] if self.sim and Species.dark in self.sim.particles else None, "_dark_vars")
+    dark_mass: NDArray[np.float32] = _get_getter("_dark_mass", lambda self: self.sim.particles[Species.dark]['mass'][self.dark_in_halo_filter] if self.sim and Species.dark in self.sim.particles else None, "_dark_vars")
 
     # Dark2 attributes
-    dark2_pos = _get_getter("_dark2_pos", lambda self: self.sim.particles[Species.dark2]['position'][self.dark2_in_halo_filter] - self.center_pos, "_dark2_vars")
-    dark2_x, dark2_y, dark2_z = [property(lambda self: self.dark2_pos[:, i]) for i in range(3)]
-    dark2_vel = _get_getter("_dark2_vel", lambda self: self.sim.particles[Species.dark2]['velocity'][self.dark2_in_halo_filter] - self.center_vel, "_dark2_vars")
-    dark2_vx, dark2_vy, dark2_vz = [property(lambda self: self.dark2_vel[:, i]) for i in range(3)]
-    dark2_distance = _get_getter("_dark2_distance", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos), 1)), "_dark2_vars")
-    dark2_r2d = _get_getter("_dark2_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos[:, [0, 1]]), 1)), "_dark2_vars")
-    dark2_speed = _get_getter("_dark2_speed", lambda self: np.sqrt(np.sum(np.square(self.dark2_vel), 1)), "_dark2_vars")
-    dark2_id = _get_getter("_dark2_id", lambda self: self.sim.particles[Species.dark2]['id'][self.dark2_in_halo_filter], "_dark2_vars")
-    dark2_id_child = _get_getter("_dark2_id_child", lambda self: self.sim.particles[Species.dark2]['id.child'][self.dark2_in_halo_filter], "_dark2_vars")
-    dark2_id_generation = _get_getter("_dark2_id_generation", lambda self: self.sim.particles[Species.dark2]['id.generation'][self.dark2_in_halo_filter], "_dark2_vars")
-    dark2_mass = _get_getter("_dark2_mass", lambda self: self.sim.particles[Species.dark2]['mass'][self.dark2_in_halo_filter], "_dark2_vars")
+    dark2_pos: NDArray[np.float64] = _get_getter("_dark2_pos", lambda self: self.sim.particles[Species.dark2]['position'][self.dark2_in_halo_filter] - self.center_pos if self.sim and Species.dark2 in self.sim.particles else None, "_dark2_vars")
+    dark2_x, dark2_y, dark2_z = [property(lambda self: self.dark2_pos[:, i] if self.sim and Species.dark2 in self.sim.particles else None) for i in range(3)]
+    dark2_vel: NDArray[np.float32] = _get_getter("_dark2_vel", lambda self: self.sim.particles[Species.dark2]['velocity'][self.dark2_in_halo_filter] - self.center_vel if self.sim and Species.dark2 in self.sim.particles else None, "_dark2_vars")
+    dark2_vx, dark2_vy, dark2_vz = [property(lambda self: self.dark2_vel[:, i] if self.sim and Species.dark2 in self.sim.particles else None) for i in range(3)]
+    dark2_distance: NDArray[np.float64] = _get_getter("_dark2_distance", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos), 1)) if self.sim and Species.dark2 in self.sim.particles else None, "_dark2_vars")
+    dark2_r2d: NDArray[np.float64] = _get_getter("_dark2_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos[:, [0, 1]]), 1)) if self.sim and Species.dark2 in self.sim.particles else None, "_dark2_vars")
+    dark2_speed: NDArray[np.float32] = _get_getter("_dark2_speed", lambda self: np.sqrt(np.sum(np.square(self.dark2_vel), 1)) if self.sim and Species.dark2 in self.sim.particles else None, "_dark2_vars")
+    dark2_id: NDArray[np.uint32] = _get_getter("_dark2_id", lambda self: self.sim.particles[Species.dark2]['id'][self.dark2_in_halo_filter] if self.sim and Species.dark2 in self.sim.particles else None, "_dark2_vars")
+    dark2_id_child: NDArray[np.uint8] = _get_getter("_dark2_id_child", lambda self: self.sim.particles[Species.dark2]['id.child'][self.dark2_in_halo_filter] if self.sim and Species.dark2 in self.sim.particles else None, "_dark2_vars")
+    dark2_id_generation: NDArray[np.uint8] = _get_getter("_dark2_id_generation", lambda self: self.sim.particles[Species.dark2]['id.generation'][self.dark2_in_halo_filter] if self.sim and Species.dark2 in self.sim.particles else None, "_dark2_vars")
+    dark2_mass: NDArray[np.float32] = _get_getter("_dark2_mass", lambda self: self.sim.particles[Species.dark2]['mass'][self.dark2_in_halo_filter] if self.sim and Species.dark2 in self.sim.particles else None, "_dark2_vars")
 
     # Lists of individual particles
-    stars = _get_getter("_stars", lambda self: [Particle.Star(self, i) for i in range(len(self.star_id))])  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
-    gas = _get_getter("_gas", lambda self: [Particle.Gas(self, i) for i in range(len(self.gas_id))])
-    dark = _get_getter("_dark", lambda self: [Particle.ark(self, i) for i in range(len(self.dark_id))])
-    dark2 = _get_getter("_dark2", lambda self: [Particle.Dark2(self, i) for i in range(len(self.dark2_id))])
+    stars: list[Particle.Star] = _get_getter("_stars", lambda self: [Particle.Star(self, i) for i in range(self.num_stars_in_filter)] if self.sim and Species.star in self.sim.particles else [])  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
+    gas: list[Particle.Gas] = _get_getter("_gas", lambda self: [Particle.Gas(self, i) for i in range(self.num_gas_in_filter)] if self.sim and Species.gas in self.sim.particles else [])
+    dark: list[Particle.Dark] = _get_getter("_dark", lambda self: [Particle.ark(self, i) for i in range(self.num_dark_in_filter)] if self.sim and Species.dark in self.sim.particles else [])
+    dark2: list[Particle.Dark2] = _get_getter("_dark2", lambda self: [Particle.Dark2(self, i) for i in range(self.num_dark2_in_filter)] if self.sim and Species.dark2 in self.sim.particles else [])
 
-    def center_on_value(self, new_pos=None, new_vel=None):
+    def center_on_value(self, new_pos=None, new_vel=None) -> ParticleGroup:
         # Get the offset between this current center and new position, and subtract offset from each particle to center on the new position
         if new_pos is not None:
             pos_offset = new_pos - self.center_pos
@@ -365,7 +450,7 @@ class ParticleGroup:
 
         return self
 
-    def center_on_halo(self, other_id, change_velocity=True, change_position=True):
+    def center_on_halo(self, other_id, change_velocity=True, change_position=True) -> ParticleGroup:
         """
         Changes the center position (and/or velocity, if specified). 
         Recalculating particles (i.e. using calling_percentage) will still use the old center. This simply changes the reference frame of the positions and/or velocities.
@@ -386,18 +471,18 @@ class ParticleGroup:
         return self.center_on_value(new_pos, new_vel)
 
     @staticmethod
-    def extract_x(array_of_vectors):
+    def extract_x(array_of_vectors: NDArray) -> NDArray:
         return array_of_vectors[:, 0]
     
     @staticmethod
-    def extract_y(array_of_vectors):
+    def extract_y(array_of_vectors: NDArray) -> NDArray:
         return array_of_vectors[:, 1]
     
     @staticmethod
-    def extract_z(array_of_vectors):
+    def extract_z(array_of_vectors: NDArray) -> NDArray:
         return array_of_vectors[:, 2]
 
-    def save_to_file(self, file_name):
+    def save_to_file(self, file_name) -> ParticleGroup:
         temp_sim = self.sim
         self.sim = None
         with open(file_name, 'wb') as file:
@@ -407,20 +492,78 @@ class ParticleGroup:
         return self
 
     @staticmethod
-    def load_from_file(file_name, sim=None):
+    def load_from_file(file_name, sim=None) -> ParticleGroup:
         with open(file_name, 'rb') as file:
             loaded_object = pickle.load(file)
         if sim:
             loaded_object.sim = sim
         return loaded_object
 
+    def get_draw_arrays(self, stars=True, gas=True, dark=True, dark2=True):
+        if stars is not False and self.star_pos is None: stars = False
+        if gas is not False and self.gas_pos is None: gas = False
+        if dark is not False and self.dark_pos is None: dark = False
+        if dark2 is not False and self.dark2_pos is None: dark2 = False
+
+        if stars is True: stars = [255, 255, 255, 0.7]
+        if gas is True: gas = [150, 150, 150, 0.7]
+        if dark is True: dark = [50, 50, 255, 0.9]
+        if dark2 is True: dark2 = [255, 150, 0, 1.3] 
+
+        star_cols = gas_cols = dark_cols = dark2_cols = np.empty((0, 4))
+
+        if stars is not False: star_cols = np.ones((self.num_stars_in_filter, 4)) * stars if isinstance(stars, Sequence) else np.array([stars(star_particle) for star_particle in self.stars])
+        if gas is not False: gas_cols = np.ones((self.num_gas_in_filter, 4)) * gas if isinstance(gas, Sequence) else np.array([gas(gas_particle) for gas_particle in self.gas])
+        if dark is not False: dark_cols = np.ones((self.num_dark_in_filter, 4)) * dark if isinstance(dark, Sequence) else np.array([dark(dark_particle) for dark_particle in self.dark])
+        if dark2 is not False: dark2_cols = np.ones((self.num_dark2_in_filter, 4)) * dark2 if isinstance(dark2, Sequence) else np.array([dark2(dark2_particle) for dark2_particle in self.dark2])
+
+        cols = np.vstack((star_cols, gas_cols, dark_cols, dark2_cols))
+        
+        star_pos = gas_pos = dark_pos = dark2_pos = np.empty((0, 3))
+
+        if stars is not False: star_pos = self.star_pos
+        if gas is not False: gas_pos = self.gas_pos
+        if dark is not False: dark_pos = self.dark_pos
+        if dark2 is not False: dark2_pos = self.dark2_pos
+
+        positions = np.vstack((star_pos, gas_pos, dark_pos, dark2_pos))
+        
+        return (positions, cols)
+    
+    def get_center_point(self, species=Species.all):
+        max_positions = []
+        min_positions = []
+
+
+        if (species == Species.star or species == Species.all) and self.star_pos is not None and len(self.star_pos) > 0:
+            max_positions.append(np.max(self.star_pos, 0))
+            min_positions.append(np.min(self.star_pos, 0))
+        if (species == Species.gas or species == Species.all) and self.gas_pos is not None and len(self.gas_pos) > 0:
+            max_positions.append(np.max(self.gas_pos, 0))
+            min_positions.append(np.min(self.gas_pos, 0))
+        if (species == Species.dark or species == Species.all) and self.dark_pos is not None and len(self.dark_pos) > 0:
+            max_positions.append(np.max(self.dark_pos, 0))
+            min_positions.append(np.min(self.dark_pos, 0))
+        if (species == Species.dark2 or species == Species.all) and self.dark2_pos is not None and len(self.dark2_pos) > 0:
+            max_positions.append(np.max(self.dark2_pos, 0))
+            min_positions.append(np.min(self.dark2_pos, 0))
+
+        if len(max_positions) > 0 and len(min_positions) > 0:
+            return (np.max(max_positions, 0) + np.min(min_positions, 0)) * 0.5
+        else:
+            return None        
+        
+    def center_on_center_point(self, species=Species.all) -> ParticleGroup:
+        self.center_on_value(self.get_center_point(species))
+
+
 class Halo(ParticleGroup):
 
     def __init__(self, 
                  sim, 
                  halo_id: int, 
-                 restrict_percentage: float | int | None = 100,
-                 species: list[str] | tuple[str] = ("all",)):
+                 restrict_percentage: Union[float, int, None] = 100,
+                 species: Sequence[str] = ("all",)):
 
         self.halo_id = halo_id
         self.halo_radius = sim.get_field('12')[halo_id]
@@ -436,22 +579,22 @@ class Halo(ParticleGroup):
         # See this_halo_center_pos, but for velocity.
         self.this_halo_center_vel = np.array([self.center_vel[0], self.center_vel[1], self.center_vel[2]])
 
-    host_halo_id = _get_getter("_host_halo_id", lambda self: self.sim.ahf_data.field('hostHalo(2)')[self.halo_id])
-    child_halo_ids = _get_getter("_child_halo_ids", lambda self: np.where(self.sim.ahf_data.field('hostHalo(2)') == self.halo_id))
-    mass = _get_getter("_mass", lambda self: self.sim.get_field('4')[self.halo_id])
-    r_max = _get_getter("_r_max", lambda self: self.sim.ahf_data.field('Rmax(13)')[self.halo_id] / self.sim.h)
-    v_max = _get_getter("_v_max", lambda self: self.sim.ahf_data.field('Vmax(17)')[self.halo_id])
-    v_esc = _get_getter("_v_esc", lambda self: self.sim.ahf_data.field('v_esc(18)')[self.halo_id])
-    num_gas = _get_getter("_num_gas", lambda self: self.sim.ahf_data.field('n_gas(44)')[self.halo_id])
+    host_halo_id: int = _get_getter("_host_halo_id", lambda self: self.sim.ahf_data.field('hostHalo(2)')[self.halo_id])
+    sub_halo_ids = _get_getter("_sub_halo_ids", lambda self: np.where(self.sim.ahf_data.field('hostHalo(2)') == self.halo_id))
+    mass: float = _get_getter("_mass", lambda self: self.sim.get_field('4')[self.halo_id])
+    r_max: float = _get_getter("_r_max", lambda self: self.sim.ahf_data.field('Rmax(13)')[self.halo_id] / self.sim.h)
+    v_max: float = _get_getter("_v_max", lambda self: self.sim.ahf_data.field('Vmax(17)')[self.halo_id])
+    v_esc: float = _get_getter("_v_esc", lambda self: self.sim.ahf_data.field('v_esc(18)')[self.halo_id])
+    num_gas: int = _get_getter("_num_gas", lambda self: self.sim.ahf_data.field('n_gas(44)')[self.halo_id])
     gas_mass = _get_getter("_gas_mass", lambda self: self.sim.ahf_data.field('M_gas(45)')[self.halo_id])
     num_stars = _get_getter("_num_stars", lambda self: self.sim.ahf_data.field('n_star(64)')[self.halo_id])
-    star_mass = _get_getter("_star_mass", lambda self: self.sim.ahf_data.field('M_star(65)')[self.halo_id])
-    num_particles = _get_getter("_num_particles", lambda self: self.sim.ahf_data.field('npart(5)')[self.halo_id])
+    star_mass: float = _get_getter("_star_mass", lambda self: self.sim.ahf_data.field('M_star(65)')[self.halo_id])
+    num_particles: int = _get_getter("_num_particles", lambda self: self.sim.ahf_data.field('npart(5)')[self.halo_id])
 
-    stars_in_halo_filter = _get_getter("_stars_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.star, None))
-    gas_in_halo_filter = _get_getter("_gas_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.gas, None))
-    dark_in_halo_filter = _get_getter("_dark_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.dark, None))
-    dark2_in_halo_filter = _get_getter("_dark2_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.dark2, None))
+    stars_in_halo_filter: NDArray[bool] = _get_getter("_stars_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.star, None))
+    gas_in_halo_filter: NDArray[bool] = _get_getter("_gas_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.gas, None))
+    dark_in_halo_filter: NDArray[bool] = _get_getter("_dark_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.dark, None))
+    dark2_in_halo_filter: NDArray[bool] = _get_getter("_dark2_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.dark2, print("testing 2")))
 
     def generate_percentage_filter_getter(self, percentage):
         if percentage is None:
@@ -459,17 +602,17 @@ class Halo(ParticleGroup):
         else:
             return self.generate_radius_filter_getter(self.halo_radius * (percentage / 100))
         
-    def restrict_percentage(self, percentage: float | int | None, boolean=None):
+    def restrict_percentage(self, percentage: Union[float, int, None], boolean=None) -> Halo:
         return self.apply_filter(self.generate_percentage_filter_getter(percentage), boolean)
     
-    def recenter_on_this_halo(self):
-        self.center_on_halo(self.halo_id)
+    def recenter_on_this_halo(self) -> Halo:
+        return self.center_on_halo(self.halo_id)
 
-    def get_host_halo(self, **halo_kwargs):
+    def get_host_halo(self, **halo_kwargs) -> Halo:
         if self.host_halo_id == -1:
             return None
         else:
             return Halo(self.sim, self.host_halo_id, **halo_kwargs)
         
-    def get_child_halos(self, **halo_kwargs):
+    def get_sub_halos(self, **halo_kwargs) -> list[Halo]:
         return [Halo(self.sim, child_id, **halo_kwargs) for child_id in self.child_halo_ids]
