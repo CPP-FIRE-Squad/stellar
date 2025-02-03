@@ -6,7 +6,10 @@ from typing import Sequence, Union
 # TODO: This vvv
 import sys
 sys.path.insert(0, "/home/olive/Documents/Research Python/playground/src")
-import galaxy_3d_renderer
+
+
+# am i recalculating star_distance on recenter?
+# Birth radius (dist to where it was born)
 
 # TODO: I'm counting particles by len(self.star_id) or len(self.star_pos). Make a variable that stores this instead, without having to access attributes
 # TODO: Make a variable/getter/method to check if a given particle is included. Currently i'm doing if self.snapshot and Species.particle in self.snapshot.particles
@@ -60,23 +63,7 @@ def _get_getter(var_name, generator, set_name_to_add_var_name=None):
         
     return getter
 
-class ParticleAttrs:
-    POSITION = "position"
-    VELOCITY = "velocity"
-    MASS = "mass"
-    DISTANCE = "distance"
-    SPEED = "speed"
-    ID = "id"
-    
-    STAR_OR_GAS_MASS_FRACTION = "massfraction"
-    STAR_SCALE_FACTOR = "form.scalefactor"
-    GAS_DENSITY = "density"
-    GAS_ELECTRON_FRACTION = "electron.fraction"
-    GAS_TEMPERATURE = "temperature"
-    GAS_HYDROGEN_NEUTRAL_FRACTION = "hydrogen.neutral.fraction"
-    GAS_SIZE = "size"
-
-class Faces:
+class Planes:
     xy = "xy"
     xz = "xz"
     yz = "yz"
@@ -94,6 +81,9 @@ class ClassType:
     SNAPSHOT = "snapshot"
 
 class Boolean:
+    """
+    Preset values to be used to define what type of boolean operation you want to apply. 
+    """
     AND = "and"
     NAND = "nand"
     OR = "or"
@@ -114,10 +104,26 @@ class Boolean:
 
     @classmethod
     def get_boolean_function(cls, boolean):
+        """
+        Takes in a function or boolean function type (in the form of a string) and returns the corresponding function
+        Possible string inputs: "and", "&", "nand", "or", "|", "nor", "xor", "xnor"
+
+        :param boolean: Either a function or a string corresponding to a type of boolean function
+        :return: The boolean function corresponding to the input
+        """
         return cls.FUNCTION_MAP[boolean.lower()] if isinstance(boolean, str) and boolean in cls.FUNCTION_MAP else boolean
 
 
 class ParticleGroup:
+    """
+    A class representing a group of particles in a snapshot. Restrictions can be applied to filter what particles are contained in a group.
+    Provides functionality for accessing the particles in the group through multiple forms.
+
+    Ways of accessing particles:
+
+    More comprehensible (recommended for starters): Get a list of all particles of a type, with each particle being an object
+    More complicated, but faster: Get a separate numpy array for each attribute, accessed individually straight from the particle group
+    """
     #TODO: Comment code and add docstrings
 
     # New features:
@@ -157,11 +163,15 @@ class ParticleGroup:
         # *Technically* we can just set self.snapshot to a Simulation if one is passed in (since they both implement the same relevant methods), but this just makes it simpler for error raising and intuition
         self.snapshot = snapshot.snapshot if snapshot.CLASS_TYPE == ClassType.SIMULATION else snapshot
 
+        # These variables exist as an optimization so that, when applying a restriction, we don't update the filters of particles we aren't going to use.
+        # This must be done instead of the load-on-use optimization since the restrictions are not saved and cannot be accessed later, so we can't wait use load to apply them.
+        # So the restrictions are done on all included particles, even if they aren't used later.
         self.incl_stars = Species.star in snapshot.particles and (Species.all in species or Species.star in species)
         self.incl_gas = Species.gas in snapshot.particles and (Species.all in species or Species.gas in species)
         self.incl_dark = Species.dark in snapshot.particles and (Species.all in species or Species.dark in species)
         self.incl_dark2 = Species.dark2 in snapshot.particles and (Species.all in species or Species.dark2 in species)
 
+        # Each of these contain all the variable names for the values corresponding to different particles (i.e. _star_pos, _dark_vel etc.)
         self._star_vars = set()
         self._gas_vars = set()
         self._dark_vars = set()
@@ -251,20 +261,20 @@ class ParticleGroup:
         else:
             return filter_getter
 
-    def generate_slice_filter_getter(self, face = 'xy', proj_distance = 1, thickness = 1):
-        face = face.lower()
+    def generate_slice_filter_getter(self, plane = 'xy', proj_distance = 1, thickness = 1):
+        plane = plane.lower()
 
         def filter_getter(self, species, particle_positions=None):
             all_rel_particle_pos = (self.snapshot.particles[species]['position'] - self.center_pos) \
                 if particle_positions is None else particle_positions
 
-            if face == 'xy' or face == 'yx': 
+            if plane == 'xy' or plane == 'yx': 
                 square_distance_to_axis = np.sum(np.square(all_rel_particle_pos[:, [0, 1]]), 1)
                 distance_to_plane = np.abs(all_rel_particle_pos[:, 2])
-            elif face == 'xz' or face == 'zx': 
+            elif plane == 'xz' or plane == 'zx': 
                 square_distance_to_axis = np.sum(np.square(all_rel_particle_pos[:, [0, 2]]), 1)
                 distance_to_plane = np.abs(all_rel_particle_pos[:, 1])
-            elif face == 'yz' or face == 'zy': 
+            elif plane == 'yz' or plane == 'zy': 
                 square_distance_to_axis = np.sum(np.square(all_rel_particle_pos[:, [1, 2]]), 1)
                 distance_to_plane = np.abs(all_rel_particle_pos[:, 0])
 
@@ -297,7 +307,7 @@ class ParticleGroup:
 
         return filter_getter
 
-    def generate_quantity_filter_getter(self, star_num=0, gas_num=0, dark_num=0, dark2_num=0):
+    def generate_quantity_filter_getter(self, star_num=None, gas_num=None, dark_num=None, dark2_num=None):
         num_map = {Species.star: star_num, Species.gas: gas_num, Species.dark: dark_num, Species.dark2: dark2_num}
 
         def filter_getter(self, species, particle_positions=None):
@@ -308,7 +318,7 @@ class ParticleGroup:
 
             if quantity == 0:
                 return self.generate_constant_filter_getter(False)(self, species, particle_positions)
-            elif quantity >= len(all_rel_particle_pos):
+            elif quantity is None or quantity >= len(all_rel_particle_pos):
                 return self.generate_constant_filter_getter(True)(self, species, particle_positions)
             
             true_values = np.full(quantity, True)
@@ -319,7 +329,7 @@ class ParticleGroup:
 
         return filter_getter
     
-    def generate_quantity_by_percentage_filter_getter(self, star_percent=0, gas_percent=0, dark_percent=0, dark2_percent=0):
+    def generate_quantity_by_percentage_filter_getter(self, star_percent=100, gas_percent=100, dark_percent=100, dark2_percent=100):
         return self.generate_quantity_filter_getter(
             int(self.num_stars_in_filter * star_percent / 100) if self.star_id is not None else 0,
             int(self.num_gas_in_filter * gas_percent / 100) if self.gas_id is not None else 0,
@@ -355,24 +365,48 @@ class ParticleGroup:
     def restrict_radius(self, radius: Union[float, int, None], boolean=None) -> ParticleGroup:
         return self.apply_filter(self.generate_radius_filter_getter(radius), boolean)
 
-    def restrict_slice(self, face = 'xy', proj_distance=1, thickness=1, boolean=None) -> ParticleGroup:
-        return self.apply_filter(self.generate_slice_filter_getter(face, proj_distance, thickness), boolean)
+    def restrict_slice(self, plane = 'xy', proj_distance=1, thickness=1, boolean=None) -> ParticleGroup:
+        return self.apply_filter(self.generate_slice_filter_getter(plane, proj_distance, thickness), boolean)
 
     def restrict_ids(self, star_ids=[], gas_ids=[], dark_ids=[], dark2_ids=[], boolean=None) -> ParticleGroup:
         return self.apply_filter(self.generate_ids_filter_getter(star_ids, gas_ids, dark_ids, dark2_ids), boolean)
 
-    def restrict_quantity(self, star_num=0, gas_num=0, dark_num=0, dark2_num=0, boolean=None) -> ParticleGroup:
+    def restrict_quantity(self, star_num=None, gas_num=None, dark_num=None, dark2_num=None, boolean=None) -> ParticleGroup:
         return self.apply_filter(self.generate_quantity_filter_getter(star_num, gas_num, dark_num, dark2_num), boolean)
 
-    def restrict_quantity_by_percentage(self, star_percent=0, gas_percent=0, dark_percent=0, dark2_percent=0, boolean=None) -> ParticleGroup:
+    def restrict_quantity_by_percentage(self, star_percent=100, gas_percent=100, dark_percent=100, dark2_percent=100, boolean=None) -> ParticleGroup:
         return self.apply_filter(self.generate_quantity_by_percentage_filter_getter(star_percent, gas_percent, dark_percent, dark2_percent), boolean)
 
     def restrict_quantity_proportionally(self, total_quantity, star_weight=1, gas_weight=1, dark_weight=1, dark2_weight=1, boolean=None) -> ParticleGroup:
         return self.apply_filter(self.generate_proportional_quantity_filter(total_quantity, star_weight, gas_weight, dark_weight, dark2_weight), boolean)
    
+    """
+    Explanation of what in the world is going on below:
+
+    In order to ensure we are not loading particle attributes we don't need, we only load them the first time they are accessed. This is done for, say star_pos, with a getter of roughly the following structure:
+    
+    @property
+    def getter(self):
+        if self._star_pos is None:                      # Check if star_pos has been accessed and generated yet.   Sidenote: In the actual definition, we actually use the getattr method here, since we want to dynamically store the name of the attribute ("_star_pos", in this case). And also, before it's generated, self.star_pos is not defined and would otherwise return an error
+                                                                                                                           # So, for instance, we use getattr(self, var_name, None), where var_name is the passed-in attribute name. And we default to None if the attribute doesn't exist yet
+            new_val = generator(self)                   # If the value has not been accessed and generated yet, we call a given generator, (i.e. lambda self: self.snapshot.particles[Species.star]['position'][self.stars_in_halo_filter]), which returns the initial value of the attribute
+            self._star_pos = new_val                    # We set star_pos to the new value.   Sidenote 2: Similarly to above, we actually use setattr here.
+            return new_val
+        else:
+            return self._star_pos                       # If the value has already been accessed and generated, just return it.   Sidenote 3: Similarly to above above, we actually use getattr here.
+
+    We create one of these getter methods using the _get_getter function. What this function does is:
+        - Take in an attribute name to store the actual value, i.e. "_star_pos"
+        - Take in a function, i.e. a lambda function, that takes in self and returns the initial value of the attribute (i.e. lambda self: self.snapshot.particles[Species.star]['position'][self.stars_in_halo_filter])
+        - Take in the name of a set in self to add the attribute name to. This is so we can have a nice list of all the attributes later, for functionality such as resetting all attributes when a restriction made
+        - Return a getter method of the above structure, which can be assigned to a class variable (this class variable will now work as a getter method)
+    """
+
     # Star attributes
     star_pos: NDArray[np.float64] = _get_getter("_star_pos", lambda self: self.snapshot.particles[Species.star]['position'][self.stars_in_halo_filter] - self.center_pos if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
-    star_x, star_y, star_z = [property(lambda self: self.star_pos[:, i] if self.snapshot and Species.star in self.snapshot.particles else None) for i in range(3)]
+    star_x, star_y, star_z = property(lambda self: self.star_pos[:, 0] if self.snapshot and Species.star in self.snapshot.particles else None), \
+        property(lambda self: self.star_pos[:, 1] if self.snapshot and Species.star in self.snapshot.particles else None), \
+        property(lambda self: self.star_pos[:, 2] if self.snapshot and Species.star in self.snapshot.particles else None),
     star_vel: NDArray[np.float32] = _get_getter("_star_vel", lambda self: self.snapshot.particles[Species.star]['velocity'][self.stars_in_halo_filter] - self.center_vel if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
     star_vx, star_vy, star_vz = [property(lambda self: self.star_vel[:, i] if self.snapshot and Species.star in self.snapshot.particles else None) for i in range(3)]
     star_distance: NDArray[np.float64] = _get_getter("_star_distance", lambda self: np.sqrt(np.sum(np.square(self.star_pos), 1)) if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
@@ -571,6 +605,7 @@ class ParticleGroup:
         self.center_on_value(self.get_center_point(species))
 
     def render(self, stars=True, gas=True, dark=True, dark2=True, distance_falloff=1/600, start_pos=(0., 0., 20.)):
+        import galaxy_3d_renderer
         galaxy_3d_renderer.render_points(*self.get_draw_arrays(stars, gas, dark, dark2), distance_falloff, start_pos)
 
 class Halo(ParticleGroup):
