@@ -140,7 +140,7 @@ class Snapshot:
     # CLASS_TYPE is defined so that code may be designed that takes in either a Snapshot or a Simulation, and it can check which one is passed in
     CLASS_TYPE = Halo.ClassType.SNAPSHOT
 
-    def __init__(self, sim, snapshot_value, simulation_directory, snapshot_directory, species, snapshot_value_kind="index", halo_finder_type: HaloData = None, halo_data_file_path=None):
+    def __init__(self, sim, snapshot_value, simulation_directory, snapshot_directory, species, snapshot_value_kind="index", halo_finder_type: HaloData = AHFData, halo_data_file_path=None):
         # The following private values are initially None, and only loaded once they are accessed through their getters.
         self._particles = None
         self._halo_data = None
@@ -175,10 +175,9 @@ class Snapshot:
         if self._halo_data is None:
             if self.halo_data_file_path is None:
                 raise ValueError("Halo data file for this snapshot was either not found or not inputted.")
-            else: 
-                if self.halo_finder_type is None:
-                    raise ValueError("No halo finder type was defined.")
-                self._halo_data = self.halo_finder_type(self, self.halo_data_file_path, self.snapshot_value)
+            if self.halo_finder_type is None:
+                raise ValueError("No halo finder type was defined.")
+            self._halo_data = self.halo_finder_type(self, self.halo_data_file_path, self.snapshot_value)
 
         return self._halo_data
     
@@ -186,13 +185,13 @@ class Snapshot:
         # Get the requested field from this snapshot's halo data
         return self.halo_data.get_field(field)
     
-    def get_halo(self, halo_id, restrict_percentage: Union[float, int, None] = 100, species: Sequence[str] = ("all",)):
+    def get_halo(self, halo_id, restrict_percentage: Union[float, int, None] = 100):
         # Get the halo from this snapshot with ID halo_id
-        return Halo.Halo(self, halo_id, restrict_percentage, species)
+        return Halo.Halo(self, halo_id, restrict_percentage)
     
-    def get_particle_group(self, species: Sequence[str] = ("all",)):
+    def get_particle_group(self):
         # Get a ParticleGroup containing all particles 
-        return Halo.ParticleGroup(self, species)
+        return Halo.ParticleGroup(self)
 
     @property
     def h(self):
@@ -270,8 +269,8 @@ class Simulation:
             simulation_directory_path,
             snapshot_directory_path_in_simulation,
             species,
-            halo_finder_type,
             snapshot_value_kind,
+            halo_finder_type,
             halo_data_file_paths[snapshot_value] if snapshot_value in halo_data_file_paths else None
         ) for snapshot_value in snapshot_values}
             
@@ -295,7 +294,7 @@ class Simulation:
         # If no snapshot value is passed in and there are multiple snapshots defined, raise an error
         if snapshot_value is None:
             if len(self.snapshots) == 1:
-                return list(self.snapshots.values())[0] 
+                return list(self.snapshots.values())[0]
             else:
                 raise IndexError("Multiple snapshots are stored in simulation; unable to access singular attribute.")
         else:
@@ -323,13 +322,13 @@ class Simulation:
     def halo_data(self):
         return self.snapshot.halo_data
 
-    def get_halo(self, halo_id, snapshot_value=None, restrict_percentage: Union[float, int, None] = 100, species: Sequence[str] = ("all",)):
+    def get_halo(self, halo_id, snapshot_value=None, restrict_percentage: Union[float, int, None] = 100):
         # Return the halo of ID halo_id in the snapshot corresponding to the ID passed in. If none is passed in and only one snapshot is defined, return the halo from that snapshot (else raise an error)
-        return self.get_snapshot(snapshot_value).get_halo(halo_id, restrict_percentage, species)
+        return self.get_snapshot(snapshot_value).get_halo(halo_id, restrict_percentage)
 
-    def get_particle_group(self, snapshot_value=None, species: Sequence[str] = ("all",)):
+    def get_particle_group(self, snapshot_value=None):
         # Return a particle group containing all particles in the snapshot corresponding to the ID passed in. If none is passed in and only one snapshot is defined, return a particle group from that snapshot (else raise an error)
-        return self.get_snapshot(snapshot_value).get_particle_group(species)
+        return self.get_snapshot(snapshot_value).get_particle_group()
 
     def get_field(self, field, snapshot_value=None):
         # Return the requested field in the snapshot corresponding to the ID passed in. If none is passed in and only one snapshot is defined, return the field from that snapshot (else raise an error)

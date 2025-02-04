@@ -21,7 +21,7 @@ sys.path.insert(0, "/home/olive/Documents/Research Python/playground/src")
 
 # TODO: Deal with self.num_stars_in_filter being undefined until a filter is applied
 
-def _get_attribute_getter(var_name, generator, set_name_to_add_var_name=None):
+def _get_attribute_getter(var_name, generator, set_name_to_add_var_name=None, to_be_reloaded_set_name=None, particle_in_halo_filter_getter_name=None):
     """Returns a getter that returns the attribute with the name given by var_name. 
     Before the attribute is accessed, it is not initialized and is None/inaccessible. When it is accessed by the getter for the first time, its initial value is created 
     by the generator function. This allows for values to not be initialized until they are accessed for the first time, reducing processing power by not initializing
@@ -47,7 +47,10 @@ def _get_attribute_getter(var_name, generator, set_name_to_add_var_name=None):
     """
     @property
     def attribute_getter(self):
+        to_be_reloaded = False
+
         if getattr(self, var_name, None) is None:
+            if to_be_reloaded: getattr(self, to_be_reloaded_set_name, set()).discard(var_name)
             if set_name_to_add_var_name is not None:
                 set_to_add_var_name = getattr(self, set_name_to_add_var_name, None)
                 if set_to_add_var_name is None:
@@ -58,8 +61,10 @@ def _get_attribute_getter(var_name, generator, set_name_to_add_var_name=None):
             new_val = generator(self)
             setattr(self, var_name, new_val)
             return new_val
-        else:
-            return self.__getattribute__(var_name)
+        elif to_be_reloaded_set_name is not None and (to_be_reloaded := var_name in getattr(self, to_be_reloaded_set_name, set())):
+            getattr(self, particle_in_halo_filter_getter_name, None)
+            
+        return self.__getattribute__(var_name)
         
     return attribute_getter
 
@@ -168,7 +173,7 @@ class ParticleGroup:
     # Extract_x, y, z for getting values from array of vectors
     # All methods return the class, for method chaining (i.e. halo = Halo(...).restrict_slice(...).restrict_ids(...))
 
-    def __init__(self, snapshot, species: Sequence[str] = ("all",)):
+    def __init__(self, snapshot):
         """Get a new particle group object representing a user-defined set of particles in the provided simulation. 
         Initially contains all particles, but restrictions can be called on this object to filter specific particles.
 
@@ -197,47 +202,71 @@ class ParticleGroup:
         self._dark_vars = set()
         self._dark2_vars = set()
 
+        self._stars_in_halo_restriction_queue = []
+        self._gas_in_halo_restriction_queue = []
+        self._dark_in_halo_restriction_queue = []
+        self._dark2_in_halo_restriction_queue = []
+
+        self._star_vars_to_reload = set()
+        self._gas_vars_to_reload = set()
+        self._dark_vars_to_reload = set()
+        self._dark2_vars_to_reload = set()
+
+    num_stars_in_filter = _get_attribute_getter("_num_stars_in_filter", lambda self: len(self.star_pos) if getattr(self, "_star_pos", None) is not None else len(next(iter(self.snapshot.particles[Species.star].values()), [])) if self.snapshot is not None and Species.star in self.snapshot.particles else None)
+    num_gas_in_filter = _get_attribute_getter("_num_gas_in_filter", lambda self: len(self.gas_pos) if getattr(self, "_gas_pos", None) is not None else len(next(iter(self.snapshot.particles[Species.gas].values()), [])) if self.snapshot is not None and Species.gas in self.snapshot.particles else None)
+    num_dark_in_filter = _get_attribute_getter("_num_dark_in_filter", lambda self: len(self.dark_pos) if getattr(self, "_dark_pos", None) is not None else len(next(iter(self.snapshot.particles[Species.dark].values()), [])) if self.snapshot is not None and Species.dark in self.snapshot.particles else None)
+    num_dark2_in_filter = _get_attribute_getter("_num_dark2_in_filter", lambda self: len(self.dark2_pos) if getattr(self, "_dark2_pos", None) is not None else len(next(iter(self.snapshot.particles[Species.dark2].values()), [])) if self.snapshot is not None and Species.dark2 in self.snapshot.particles else None)
+
     def reset_particle_attributes(self, species=Species.all):
-        var_names = []
-        if species == Species.all: var_names = self._star_vars | self._gas_vars | self._dark_vars | self._dark2_vars
-        elif species == Species.star: var_names = self._star_vars
-        elif species == Species.gas: var_names = self._gas_vars
-        elif species == Species.dark: var_names = self._dark_vars
-        elif species == Species.dark2: var_names = self._dark2_vars
+        var_names = set()
+        if species == Species.all or species == Species.star: 
+            if self.snapshot is not None: var_names |= self._star_vars
+            else: self._star_vars_to_reload |= self._star_vars
+        if species == Species.all or species == Species.gas: 
+            if self.snapshot is not None: var_names |= self._gas_vars
+            else: self._star_vars_to_reload |= self._gas_vars
+        if species == Species.all or species == Species.dark: 
+            if self.snapshot is not None: var_names |= self._dark_vars
+            else: self._star_vars_to_reload |= self._dark_vars
+        if species == Species.all or species == Species.dark2: 
+            if self.snapshot is not None: var_names |= self._dark2_vars
+            else: self._star_vars_to_reload |= self._dark2_vars
 
         for var_name in var_names:
             self.__setattr__(var_name, None)
         
         return self
     
-    stars_in_halo_filter = _get_particles_in_halo_filter_getter(Species.star, "_stars_in_halo_restriction_queue", "_stars_in_halo_filter", "_star_vars", "_star_pos", "num_stars_in_filter")
-    gas_in_halo_filter = _get_particles_in_halo_filter_getter(Species.gas, "_gas_in_halo_restriction_queue", "_gas_in_halo_filter", "_gas_vars", "_gas_pos", "num_gas_in_filter")
-    dark_in_halo_filter = _get_particles_in_halo_filter_getter(Species.dark, "_dark_in_halo_restriction_queue", "_dark_in_halo_filter", "_dark_vars", "_dark_pos", "num_dark_in_filter")
-    dark2_in_halo_filter = _get_particles_in_halo_filter_getter(Species.dark2, "_dark2_in_halo_restriction_queue", "_dark2_in_halo_filter", "_dark2_vars", "_dark2_pos", "num_dark2_in_filter")
+    stars_in_halo_filter = _get_particles_in_halo_filter_getter(Species.star, "_stars_in_halo_restriction_queue", "_stars_in_halo_filter", "_star_vars", "_star_pos", "_num_stars_in_filter")
+    gas_in_halo_filter = _get_particles_in_halo_filter_getter(Species.gas, "_gas_in_halo_restriction_queue", "_gas_in_halo_filter", "_gas_vars", "_gas_pos", "_num_gas_in_filter")
+    dark_in_halo_filter = _get_particles_in_halo_filter_getter(Species.dark, "_dark_in_halo_restriction_queue", "_dark_in_halo_filter", "_dark_vars", "_dark_pos", "_num_dark_in_filter")
+    dark2_in_halo_filter = _get_particles_in_halo_filter_getter(Species.dark2, "_dark2_in_halo_restriction_queue", "_dark2_in_halo_filter", "_dark2_vars", "_dark2_pos", "_num_dark2_in_filter")
 
     def add_restriction(self, filter_getter, boolean=None, species=Species.all):
-        if not (boolean is True or isinstance(boolean, str) and boolean.lower() in ["and", "&", Boolean.AND]) and self.snapshot is None:
+        if self.snapshot is None and not (boolean is True or isinstance(boolean, str) and boolean.lower() in ["and", "&", Boolean.AND]):
             raise AttributeError("Must use boolean='and' or '&' or Boolean.AND if sim is undefined, since filtered-out particles are no longer accessible")
 
         if species == Species.star or species == Species.all:
-            self.stars_in_halo_filter_restriction_queue.append((filter_getter, boolean))
-
+            self._stars_in_halo_restriction_queue.append((filter_getter, boolean))
         if species == Species.gas or species == Species.all:
-            self.gas_in_halo_filter_restriction_queue.append((filter_getter, boolean))
+            self._gas_in_halo_restriction_queue.append((filter_getter, boolean))
         if species == Species.dark or species == Species.all:
-            self.dark_in_halo_filter_restriction_queue.append((filter_getter, boolean))
+            self._dark_in_halo_restriction_queue.append((filter_getter, boolean))
         if species == Species.dark2 or species == Species.all:
-            self.dark2_in_halo_filter_restriction_queue.append((filter_getter, boolean))
+            self._dark2_in_halo_restriction_queue.append((filter_getter, boolean))
 
         self.reset_particle_attributes(species)
 
         return self
 
     def apply_filter(self, filter_getter, species, particles_in_halo_filter_var_name, var_names_set_name, particle_positions_var_name, num_particles_in_filter_var_name, boolean=None):
-        if boolean is True or isinstance(boolean, str) and boolean.lower() in ["and", "&", Boolean.AND]:
-            if self.snapshot is None and getattr(self, particle_positions_var_name, None) is None:
-                raise AttributeError("A restriction was made on this particle despite no snapshot is defined and no positions of this particle being saved")
-            
+        if self.snapshot is None:
+            if not (boolean is True or isinstance(boolean, str) and boolean.lower() in ["and", "&", Boolean.AND]):
+                raise AttributeError("Must use boolean='and' or '&' or Boolean.AND if sim is undefined, since filtered-out particles are no longer accessible.")
+
+            if getattr(self, particle_positions_var_name, None) is None:
+                raise AttributeError("In order to make a restriction without a snapshot being defined, the particle's positions must be saved.")
+
             relative_boolean_filter = filter_getter(self, species, self.__getattribute__(particle_positions_var_name))
             num_of_particles = None
 
@@ -259,9 +288,9 @@ class ParticleGroup:
                 current_particles_in_halo_filter = self.__getattribute__(particles_in_halo_filter_var_name)
                 self.__setattr__(particles_in_halo_filter_var_name, boolean_func(current_particles_in_halo_filter, filter_getter(self, Species.star, None)))
 
-            self.__setattr__(num_particles_in_filter_var_name, np.count_nonzero(self._stars_in_halo_filter))
+            self.__setattr__(num_particles_in_filter_var_name, np.count_nonzero(self.__getattribute__(particles_in_halo_filter_var_name)))
     
-    # Functions that generate return filter getters (filter getters are to be passed into apply_filter)
+    # Functions that generate return filter getters (filter getters are to be passed into add_restriction/apply_filter)
     def generate_constant_filter_getter(self, all_true_or_false):
         return lambda self, species, particle_positions=None: np.full(
             len(self.snapshot.particles[species]['position'] if particle_positions is None else particle_positions), 
@@ -364,8 +393,6 @@ class ParticleGroup:
         num_dark = self.num_dark_in_filter * dark_weight if self.num_dark_in_filter is not None else 0
         num_dark2 = self.num_dark2_in_filter * dark2_weight if self.num_dark2_in_filter is not None else 0
 
-        # print(num_dark2)
-
         total_num = num_stars + num_gas + num_dark + num_dark2
 
         if total_num == 0:
@@ -424,76 +451,76 @@ class ParticleGroup:
     """
 
     # Star attributes
-    star_pos: NDArray[np.float64] = _get_attribute_getter("_star_pos", lambda self: self.snapshot.particles[Species.star]['position'][self.stars_in_halo_filter] - self.center_pos if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
+    star_pos: NDArray[np.float64] = _get_attribute_getter("_star_pos", lambda self: self.snapshot.particles[Species.star]['position'][self.stars_in_halo_filter] - self.center_pos if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
     star_x, star_y, star_z = property(lambda self: self.star_pos[:, 0] if self.snapshot and Species.star in self.snapshot.particles else None), \
         property(lambda self: self.star_pos[:, 1] if self.snapshot and Species.star in self.snapshot.particles else None), \
         property(lambda self: self.star_pos[:, 2] if self.snapshot and Species.star in self.snapshot.particles else None),
-    star_vel: NDArray[np.float32] = _get_attribute_getter("_star_vel", lambda self: self.snapshot.particles[Species.star]['velocity'][self.stars_in_halo_filter] - self.center_vel if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
+    star_vel: NDArray[np.float32] = _get_attribute_getter("_star_vel", lambda self: self.snapshot.particles[Species.star]['velocity'][self.stars_in_halo_filter] - self.center_vel if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
     star_vx, star_vy, star_vz = [property(lambda self: self.star_vel[:, i] if self.snapshot and Species.star in self.snapshot.particles else None) for i in range(3)]
-    star_distance: NDArray[np.float64] = _get_attribute_getter("_star_distance", lambda self: np.sqrt(np.sum(np.square(self.star_pos), 1)) if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
-    star_r2d: NDArray[np.float64] = _get_attribute_getter("_star_r2d", lambda self: np.sqrt(np.sum(np.square(self.star_pos[:, [0, 1]]), 1)) if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
-    star_speed: NDArray[np.float32] = _get_attribute_getter("_star_speed", lambda self: np.sqrt(np.sum(np.square(self.star_vel), 1)) if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
-    star_id: NDArray[np.uint32] = _get_attribute_getter("_star_id", lambda self: self.snapshot.particles[Species.star]['id'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
-    star_id_child: NDArray[np.uint8] = _get_attribute_getter("_star_id_child", lambda self: self.snapshot.particles[Species.star]['id.child'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
-    star_id_generation: NDArray[np.uint8] = _get_attribute_getter("_star_id_generation", lambda self: self.snapshot.particles[Species.star]['id.generation'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
-    star_mass: NDArray[np.float32] = _get_attribute_getter("_star_mass", lambda self: self.snapshot.particles[Species.star]['mass'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
+    star_distance: NDArray[np.float64] = _get_attribute_getter("_star_distance", lambda self: np.sqrt(np.sum(np.square(self.star_pos), 1)) if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
+    star_r2d: NDArray[np.float64] = _get_attribute_getter("_star_r2d", lambda self: np.sqrt(np.sum(np.square(self.star_pos[:, [0, 1]]), 1)) if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
+    star_speed: NDArray[np.float32] = _get_attribute_getter("_star_speed", lambda self: np.sqrt(np.sum(np.square(self.star_vel), 1)) if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
+    star_id: NDArray[np.uint32] = _get_attribute_getter("_star_id", lambda self: self.snapshot.particles[Species.star]['id'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
+    star_id_child: NDArray[np.uint8] = _get_attribute_getter("_star_id_child", lambda self: self.snapshot.particles[Species.star]['id.child'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
+    star_id_generation: NDArray[np.uint8] = _get_attribute_getter("_star_id_generation", lambda self: self.snapshot.particles[Species.star]['id.generation'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
+    star_mass: NDArray[np.float32] = _get_attribute_getter("_star_mass", lambda self: self.snapshot.particles[Species.star]['mass'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
     
-    star_scale_factor: NDArray[np.float32] = _get_attribute_getter("_star_scale_factor", lambda self: self.snapshot.particles[Species.star]['form.scalefactor'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
-    star_mass_fraction: NDArray[np.float32] = _get_attribute_getter("_star_mass_fraction", lambda self: self.snapshot.particles[Species.star]['massfraction'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars")
-    # TODO: What is star scale_factor? Why isn't 'age' in particles['star']? Any correlation, since scale_factor isn't in other implementation but age is.
+    star_scale_factor: NDArray[np.float32] = _get_attribute_getter("_star_scale_factor", lambda self: self.snapshot.particles[Species.star]['form.scalefactor'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "stars_in_halo_filter")
+    star_mass_fraction: NDArray[np.float32] = _get_attribute_getter("_star_mass_fraction", lambda self: self.snapshot.particles[Species.star]['massfraction'][self.stars_in_halo_filter] if self.snapshot and Species.star in self.snapshot.particles else None, "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")
+    # TODO: What is star scale_factor? Why isn't 'age' in particles['star']? Any correlation, since scale_factor isn't in other implementation but age is, "_star_vars_to_reload".
 
     # Gas attributes
-    gas_pos: NDArray[np.float64] = _get_attribute_getter("_gas_pos", lambda self: self.snapshot.particles[Species.gas]['position'][self.gas_in_halo_filter] - self.center_pos if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
+    gas_pos: NDArray[np.float64] = _get_attribute_getter("_gas_pos", lambda self: self.snapshot.particles[Species.gas]['position'][self.gas_in_halo_filter] - self.center_pos if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
     gas_x, gas_y, gas_z = [property(lambda self: self.gas_pos[:, i] if self.snapshot and Species.gas in self.snapshot.particles else None) for i in range(3)]
-    gas_vel: NDArray[np.float32] = _get_attribute_getter("_gas_vel", lambda self: self.snapshot.particles[Species.gas]['velocity'][self.gas_in_halo_filter] - self.center_vel if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
+    gas_vel: NDArray[np.float32] = _get_attribute_getter("_gas_vel", lambda self: self.snapshot.particles[Species.gas]['velocity'][self.gas_in_halo_filter] - self.center_vel if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
     gas_vx, gas_vy, gas_vz = [property(lambda self: self.gas_vel[:, i] if self.snapshot and Species.gas in self.snapshot.particles else None) for i in range(3)]
-    gas_distance: NDArray[np.float64] = _get_attribute_getter("_gas_distance", lambda self: np.sqrt(np.sum(np.square(self.gas_pos), 1)) if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_r2d: NDArray[np.float64] = _get_attribute_getter("_gas_r2d", lambda self: np.sqrt(np.sum(np.square(self.gas_pos[:, [0, 1]]), 1)) if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_speed: NDArray[np.float32] = _get_attribute_getter("_gas_speed", lambda self: np.sqrt(np.sum(np.square(self.gas_vel), 1)) if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_id: NDArray[np.uint32] = _get_attribute_getter("_gas_id", lambda self: self.snapshot.particles[Species.gas]['id'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_id_child: NDArray[np.uint8] = _get_attribute_getter("_gas_id_child", lambda self: self.snapshot.particles[Species.gas]['id.child'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_id_generation: NDArray[np.uint8] = _get_attribute_getter("_gas_id_generation", lambda self: self.snapshot.particles[Species.gas]['id.generation'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_mass: NDArray[np.float32] = _get_attribute_getter("_gas_mass", lambda self: self.snapshot.particles[Species.gas]['mass'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
+    gas_distance: NDArray[np.float64] = _get_attribute_getter("_gas_distance", lambda self: np.sqrt(np.sum(np.square(self.gas_pos), 1)) if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_r2d: NDArray[np.float64] = _get_attribute_getter("_gas_r2d", lambda self: np.sqrt(np.sum(np.square(self.gas_pos[:, [0, 1]]), 1)) if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_speed: NDArray[np.float32] = _get_attribute_getter("_gas_speed", lambda self: np.sqrt(np.sum(np.square(self.gas_vel), 1)) if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_id: NDArray[np.uint32] = _get_attribute_getter("_gas_id", lambda self: self.snapshot.particles[Species.gas]['id'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_id_child: NDArray[np.uint8] = _get_attribute_getter("_gas_id_child", lambda self: self.snapshot.particles[Species.gas]['id.child'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_id_generation: NDArray[np.uint8] = _get_attribute_getter("_gas_id_generation", lambda self: self.snapshot.particles[Species.gas]['id.generation'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_mass: NDArray[np.float32] = _get_attribute_getter("_gas_mass", lambda self: self.snapshot.particles[Species.gas]['mass'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
     
-    gas_mass_fraction: NDArray[np.float32] = _get_attribute_getter("_gas_mass_fraction", lambda self: self.snapshot.particles[Species.gas]['massfraction'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_density: NDArray[np.float32] = _get_attribute_getter("_gas_density", lambda self: self.snapshot.particles[Species.gas]['density'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_electron_fraction: NDArray[np.float32] = _get_attribute_getter("_gas_electron_fraction", lambda self: self.snapshot.particles[Species.gas]['electron.fraction'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_temperature: NDArray[np.float32] = _get_attribute_getter("gas_temperature", lambda self: self.snapshot.particles[Species.gas]['temperature'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_hydrogen_neutral_fraction: NDArray[np.float32] = _get_attribute_getter("_gas_hydrogen_neutral_fraction", lambda self: self.snapshot.particles[Species.gas]['hydrogen.neutral.fraction'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_size: NDArray[np.float32] = _get_attribute_getter("_gas_size", lambda self: self.snapshot.particles[Species.gas]['size'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
-    gas_sfr: NDArray[np.float32] = _get_attribute_getter("_gas_sfr", lambda self: self.snapshot.particles[Species.gas]['sfr'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars")
+    gas_mass_fraction: NDArray[np.float32] = _get_attribute_getter("_gas_mass_fraction", lambda self: self.snapshot.particles[Species.gas]['massfraction'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_density: NDArray[np.float32] = _get_attribute_getter("_gas_density", lambda self: self.snapshot.particles[Species.gas]['density'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_electron_fraction: NDArray[np.float32] = _get_attribute_getter("_gas_electron_fraction", lambda self: self.snapshot.particles[Species.gas]['electron.fraction'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_temperature: NDArray[np.float32] = _get_attribute_getter("gas_temperature", lambda self: self.snapshot.particles[Species.gas]['temperature'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_hydrogen_neutral_fraction: NDArray[np.float32] = _get_attribute_getter("_gas_hydrogen_neutral_fraction", lambda self: self.snapshot.particles[Species.gas]['hydrogen.neutral.fraction'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_size: NDArray[np.float32] = _get_attribute_getter("_gas_size", lambda self: self.snapshot.particles[Species.gas]['size'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    gas_sfr: NDArray[np.float32] = _get_attribute_getter("_gas_sfr", lambda self: self.snapshot.particles[Species.gas]['sfr'][self.gas_in_halo_filter] if self.snapshot and Species.gas in self.snapshot.particles else None, "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
 
     # Dark attributes
-    dark_pos: NDArray[np.float64] = _get_attribute_getter("_dark_pos", lambda self: self.snapshot.particles[Species.dark]['position'][self.dark_in_halo_filter] - self.center_pos if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars")
+    dark_pos: NDArray[np.float64] = _get_attribute_getter("_dark_pos", lambda self: self.snapshot.particles[Species.dark]['position'][self.dark_in_halo_filter] - self.center_pos if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
     dark_x, dark_y, dark_z = [property(lambda self: self.dark_pos[:, i] if self.snapshot and Species.dark in self.snapshot.particles else None) for i in range(3)]
-    dark_vel: NDArray[np.float32] = _get_attribute_getter("_dark_vel", lambda self: self.snapshot.particles[Species.dark]['velocity'][self.dark_in_halo_filter] - self.center_vel if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars")
+    dark_vel: NDArray[np.float32] = _get_attribute_getter("_dark_vel", lambda self: self.snapshot.particles[Species.dark]['velocity'][self.dark_in_halo_filter] - self.center_vel if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
     dark_vx, dark_vy, dark_vz = [property(lambda self: self.dark_vel[:, i] if self.snapshot and Species.dark in self.snapshot.particles else None) for i in range(3)]
-    dark_distance: NDArray[np.float64] = _get_attribute_getter("_dark_distance", lambda self: np.sqrt(np.sum(np.square(self.dark_pos), 1)) if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars")
-    dark_r2d: NDArray[np.float64] = _get_attribute_getter("_dark_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark_pos[:, [0, 1]]), 1)) if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars")
-    dark_speed: NDArray[np.float32] = _get_attribute_getter("_dark_speed", lambda self: np.sqrt(np.sum(np.square(self.dark_vel), 1)) if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars")
-    dark_id: NDArray[np.uint32] = _get_attribute_getter("_dark_id", lambda self: self.snapshot.particles[Species.dark]['id'][self.dark_in_halo_filter] if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars")
-    dark_id_child: NDArray[np.uint8] = _get_attribute_getter("_dark_id_child", lambda self: self.snapshot.particles[Species.dark]['id.child'][self.dark_in_halo_filter] if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars")
-    dark_id_generation: NDArray[np.uint8] = _get_attribute_getter("_dark_id_generation", lambda self: self.snapshot.particles[Species.dark]['id.generation'][self.dark_in_halo_filter] if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars")
-    dark_mass: NDArray[np.float32] = _get_attribute_getter("_dark_mass", lambda self: self.snapshot.particles[Species.dark]['mass'][self.dark_in_halo_filter] if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars")
-
+    dark_distance: NDArray[np.float64] = _get_attribute_getter("_dark_distance", lambda self: np.sqrt(np.sum(np.square(self.dark_pos), 1)) if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
+    dark_r2d: NDArray[np.float64] = _get_attribute_getter("_dark_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark_pos[:, [0, 1]]), 1)) if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
+    dark_speed: NDArray[np.float32] = _get_attribute_getter("_dark_speed", lambda self: np.sqrt(np.sum(np.square(self.dark_vel), 1)) if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
+    dark_id: NDArray[np.uint32] = _get_attribute_getter("_dark_id", lambda self: self.snapshot.particles[Species.dark]['id'][self.dark_in_halo_filter] if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
+    dark_id_child: NDArray[np.uint8] = _get_attribute_getter("_dark_id_child", lambda self: self.snapshot.particles[Species.dark]['id.child'][self.dark_in_halo_filter] if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
+    dark_id_generation: NDArray[np.uint8] = _get_attribute_getter("_dark_id_generation", lambda self: self.snapshot.particles[Species.dark]['id.generation'][self.dark_in_halo_filter] if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
+    dark_mass: NDArray[np.float32] = _get_attribute_getter("_dark_mass", lambda self: self.snapshot.particles[Species.dark]['mass'][self.dark_in_halo_filter] if self.snapshot and Species.dark in self.snapshot.particles else None, "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
+    
     # Dark2 attributes
-    dark2_pos: NDArray[np.float64] = _get_attribute_getter("_dark2_pos", lambda self: self.snapshot.particles[Species.dark2]['position'][self.dark2_in_halo_filter] - self.center_pos if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars")
+    dark2_pos: NDArray[np.float64] = _get_attribute_getter("_dark2_pos", lambda self: self.snapshot.particles[Species.dark2]['position'][self.dark2_in_halo_filter] - self.center_pos if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars", "_dark2_vars_to_reload", "dark_in_halo_filter")
     dark2_x, dark2_y, dark2_z = [property(lambda self: self.dark2_pos[:, i] if self.snapshot and Species.dark2 in self.snapshot.particles else None) for i in range(3)]
-    dark2_vel: NDArray[np.float32] = _get_attribute_getter("_dark2_vel", lambda self: self.snapshot.particles[Species.dark2]['velocity'][self.dark2_in_halo_filter] - self.center_vel if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars")
+    dark2_vel: NDArray[np.float32] = _get_attribute_getter("_dark2_vel", lambda self: self.snapshot.particles[Species.dark2]['velocity'][self.dark2_in_halo_filter] - self.center_vel if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars", "_dark2_vars_to_reload", "dark_in_halo_filter")
     dark2_vx, dark2_vy, dark2_vz = [property(lambda self: self.dark2_vel[:, i] if self.snapshot and Species.dark2 in self.snapshot.particles else None) for i in range(3)]
-    dark2_distance: NDArray[np.float64] = _get_attribute_getter("_dark2_distance", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos), 1)) if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars")
-    dark2_r2d: NDArray[np.float64] = _get_attribute_getter("_dark2_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos[:, [0, 1]]), 1)) if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars")
-    dark2_speed: NDArray[np.float32] = _get_attribute_getter("_dark2_speed", lambda self: np.sqrt(np.sum(np.square(self.dark2_vel), 1)) if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars")
-    dark2_id: NDArray[np.uint32] = _get_attribute_getter("_dark2_id", lambda self: self.snapshot.particles[Species.dark2]['id'][self.dark2_in_halo_filter] if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars")
-    dark2_id_child: NDArray[np.uint8] = _get_attribute_getter("_dark2_id_child", lambda self: self.snapshot.particles[Species.dark2]['id.child'][self.dark2_in_halo_filter] if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars")
-    dark2_id_generation: NDArray[np.uint8] = _get_attribute_getter("_dark2_id_generation", lambda self: self.snapshot.particles[Species.dark2]['id.generation'][self.dark2_in_halo_filter] if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars")
-    dark2_mass: NDArray[np.float32] = _get_attribute_getter("_dark2_mass", lambda self: self.snapshot.particles[Species.dark2]['mass'][self.dark2_in_halo_filter] if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars")
+    dark2_distance: NDArray[np.float64] = _get_attribute_getter("_dark2_distance", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos), 1)) if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars", "_dark2_vars_to_reload", "dark_in_halo_filter")
+    dark2_r2d: NDArray[np.float64] = _get_attribute_getter("_dark2_r2d", lambda self: np.sqrt(np.sum(np.square(self.dark2_pos[:, [0, 1]]), 1)) if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars", "_dark2_vars_to_reload", "dark_in_halo_filter")
+    dark2_speed: NDArray[np.float32] = _get_attribute_getter("_dark2_speed", lambda self: np.sqrt(np.sum(np.square(self.dark2_vel), 1)) if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars", "_dark2_vars_to_reload", "dark_in_halo_filter")
+    dark2_id: NDArray[np.uint32] = _get_attribute_getter("_dark2_id", lambda self: self.snapshot.particles[Species.dark2]['id'][self.dark2_in_halo_filter] if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars", "_dark2_vars_to_reload", "dark_in_halo_filter")
+    dark2_id_child: NDArray[np.uint8] = _get_attribute_getter("_dark2_id_child", lambda self: self.snapshot.particles[Species.dark2]['id.child'][self.dark2_in_halo_filter] if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars", "_dark2_vars_to_reload", "dark_in_halo_filter")
+    dark2_id_generation: NDArray[np.uint8] = _get_attribute_getter("_dark2_id_generation", lambda self: self.snapshot.particles[Species.dark2]['id.generation'][self.dark2_in_halo_filter] if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars", "_dark2_vars_to_reload", "dark_in_halo_filter")
+    dark2_mass: NDArray[np.float32] = _get_attribute_getter("_dark2_mass", lambda self: self.snapshot.particles[Species.dark2]['mass'][self.dark2_in_halo_filter] if self.snapshot and Species.dark2 in self.snapshot.particles else None, "_dark2_vars", "_dark2_vars_to_reload", "dark_in_halo_filter")
 
     # Lists of individual particles
-    stars: list[Particle.Star] = _get_attribute_getter("_stars", lambda self: [Particle.Star(self, i) for i in range(self.num_stars_in_filter)] if self.snapshot and Species.star in self.snapshot.particles else [])  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
-    gas: list[Particle.Gas] = _get_attribute_getter("_gas", lambda self: [Particle.Gas(self, i) for i in range(self.num_gas_in_filter)] if self.snapshot and Species.gas in self.snapshot.particles else [])
-    dark: list[Particle.Dark] = _get_attribute_getter("_dark", lambda self: [Particle.ark(self, i) for i in range(self.num_dark_in_filter)] if self.snapshot and Species.dark in self.snapshot.particles else [])
-    dark2: list[Particle.Dark2] = _get_attribute_getter("_dark2", lambda self: [Particle.Dark2(self, i) for i in range(self.num_dark2_in_filter)] if self.snapshot and Species.dark2 in self.snapshot.particles else [])
+    stars: list[Particle.Star] = _get_attribute_getter("_stars", lambda self: [Particle.Star(self, i) for i in range(self.num_stars_in_filter)] if self.snapshot and Species.star in self.snapshot.particles else [], "_star_vars", "_star_vars_to_reload", "stars_in_halo_filter")  # This is dependent on the mask applied to Halo, but that's fine because self._stars is reset every time the mask is changed
+    gas: list[Particle.Gas] = _get_attribute_getter("_gas", lambda self: [Particle.Gas(self, i) for i in range(self.num_gas_in_filter)] if self.snapshot and Species.gas in self.snapshot.particles else [], "_gas_vars", "_gas_vars_to_reload", "gas_in_halo_filter")
+    dark: list[Particle.Dark] = _get_attribute_getter("_dark", lambda self: [Particle.ark(self, i) for i in range(self.num_dark_in_filter)] if self.snapshot and Species.dark in self.snapshot.particles else [], "_dark_vars", "_dark_vars_to_reload", "dark_in_halo_filter")
+    dark2: list[Particle.Dark2] = _get_attribute_getter("_dark2", lambda self: [Particle.Dark2(self, i) for i in range(self.num_dark2_in_filter)] if self.snapshot and Species.dark2 in self.snapshot.particles else [], "_dark2_vars", "_dark2_vars_to_reload", "dark2_in_halo_filter")
 
     def center_on_value(self, new_pos=None, new_vel=None) -> ParticleGroup:
         # Get the offset between this current center and new position, and subtract offset from each particle to center on the new position
