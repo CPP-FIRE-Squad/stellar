@@ -26,6 +26,18 @@ def get_first_full_int_in_string(string):
 
     return int(num) if len(num) > 0 else None
 
+def get_all_ints_in_string(string):
+    nums = []
+    current_num = ""
+    for char in string:
+        if char.isdigit():
+            current_num += char
+        elif len(current_num) > 0:
+            nums.append(int(current_num))
+            current_num = ""
+
+    return nums
+
 def find_file_containing_number(filenames, number, file_ending):
     """
     For all the filenames passed in, finds the first one that has a given number in it (and ends in the string file_ending)
@@ -53,12 +65,94 @@ class HaloData(abc.ABC):
     Returns the requested field in the loaded halo data corresponding
     """
 
-    @classmethod
+    @staticmethod
     @abc.abstractmethod
-    def find_halo_data_file_path(cls, directory, snapshot_value, snapshot_value_kind='index'): ...
+    def find_halo_data_file_path(parent_directory_path, snapshot_value, snapshot_value_kind='index'): ...
     """
-    Returns the path of the halo data corresponding to the given snapshot_value, in the given directory
+    Returns the path of the halo data corresponding to the given snapshot_value, in the given parent directory
     """
+
+    @staticmethod
+    def find_merger_tree_file_path(parent_directory_path, snapshot_value_1, snapshot_value_2): raise NotImplementedError
+    """
+    Returns the path of the merger tree data file linking the given snapshot values, in the given directory
+    """
+
+    # _get_progenitor_ids need not be overwritten if get_progenitor_tree is overwritten to not call it
+    @staticmethod
+    def _get_progenitor_ids(halo_id, file_path): raise NotImplementedError
+    """
+    Returns the ids of all progenitors of the halo_id, given the path of a merger tree file
+    """
+
+    # _get_main_progenitor_id need not be overwritten if get_main_progenitor_line is overwritten to not call it
+    @staticmethod
+    def _get_main_progenitor_id(halo_id, file_path): raise NotImplementedError
+
+    # _get_descendant_id need not be overwritten if get_descendant_line is overwritten to not call it
+    @staticmethod
+    def _get_descendant_id(halo_id, file_path): raise NotImplementedError
+
+    @staticmethod
+    def get_progenitor_tree(snapshot_of_halo, halo_id): raise NotImplementedError
+
+    @classmethod
+    def get_main_progenitor_line(cls, snapshot_of_halo, halo_id, merger_files_parent_directory_path):
+        cur_snapshot = snapshot_of_halo
+        cur_main_progenitor_id = halo_id
+        main_progenitors = {cur_snapshot: cur_main_progenitor_id}
+
+        while True:
+            merger_tree_file = cls.find_halo_data_file_path(merger_files_parent_directory_path, cur_snapshot, cur_snapshot - 1)
+            if merger_tree_file is None:
+                break
+            
+            cur_main_progenitor_id = cls._get_main_progenitor_id(cur_main_progenitor_id)
+
+            main_progenitors[cur_snapshot] = cur_main_progenitor_id
+            
+            cur_snapshot -= 1
+
+        return main_progenitors
+        
+    @classmethod
+    def get_descendant_line(cls, snapshot_of_halo, halo_id, merger_files_parent_directory_path):
+        cur_snapshot = snapshot_of_halo
+        cur_main_progenitor_id = halo_id
+        main_progenitors = {cur_snapshot: cur_main_progenitor_id}
+
+        while True:
+            merger_tree_file = cls.find_halo_data_file_path(merger_files_parent_directory_path, cur_snapshot + 1, cur_snapshot)
+            if merger_tree_file is None:
+                break
+            
+            cur_main_progenitor_id = cls._get_descendant_id(cur_main_progenitor_id)
+
+            main_progenitors[cur_snapshot] = cur_main_progenitor_id
+            
+            cur_snapshot += 1
+
+        return main_progenitors
+    
+
+# class Progenitor:
+#     def __init__(self, halo_finder, halo_id, snapshot):
+#         self.halo_finder: HaloData = halo_finder
+#         self.snapshot = snapshot
+#         self.halo_id = halo_id
+#         self.progenitors: set[Progenitor] = ...
+
+#         self._main_progenitor = None
+#         self._progenitors = None
+
+#     @property
+#     def main_progenitor(self):
+#         if self._main_progenitor is None:
+#             self._main_progenitor = self.halo_finder.get_progenitor_tree(self.snapshot, self.id)
+
+#         return self._main_progenitor
+
+#     @property
 
 class AHFData(HaloData):
     def __init__(self, snapshot, path, snapshot_value):
@@ -119,17 +213,102 @@ class AHFData(HaloData):
     def field(self, field):
         return self.data.field(field)
 
-    @classmethod
-    def find_halo_data_file_path(cls, parent_directory_path, snapshot_value, snapshot_value_kind='index') -> Union[str, None]:
+    @staticmethod
+    def find_halo_data_file_path(parent_directory_path, snapshot_value, snapshot_value_kind='index') -> Union[str, None]:
         parent_directory_contents = os.listdir(parent_directory_path)
-        filename = find_file_containing_number(parent_directory_contents, snapshot_value, '.AHF_halos')
-        return os.path.join(parent_directory_path, filename) if filename is not None else None
+        for filename in parent_directory_contents:
+            file_num = get_first_full_int_in_string(filename)
+
+            if file_num == snapshot_value and filename.endswith('.AHF_halos'): # TODO: This function
+                return os.path.join(parent_directory_path, filename)
+            
+        return None
     
         # raise Exception(f"Could not find halo data file affiliated with snapshot {snapshot_value} (filename must contain {snapshot_name})")
 
+    @staticmethod
+    def find_merger_tree_file_path(parent_directory_path, snapshot_value_1, snapshot_value_2):
+        parent_directory_contents = os.listdir(parent_directory_path)
+        for filename in parent_directory_contents:
+            nums_in_filename = get_all_ints_in_string(filename)
+
+            if snapshot_value_1 in nums_in_filename and snapshot_value_2 in nums_in_filename:
+                return os.path.join(parent_directory_path, filename)
+            
+        return None
+
+    @staticmethod
+    def get_progenitor_ids(halo_id, file_path):
+        with open(file_path, "r") as file:
+            file_contents = file.read()
+            
+        progenitor_ids = []
+        saving_progenitors = False
+        for line in file_contents.split("\n"):
+            if len(line) == 0 or line[0] == "#":
+                continue
+            if line[0] != " ":
+                if saving_progenitors:
+                    break
+                if int(line.split(" ")[0]) == halo_id:
+                    saving_progenitors = True
+            elif saving_progenitors:
+                progenitor_ids.append(int(line.split("  ")[2]))
+
+        return progenitor_ids
+
+    @staticmethod
+    def get_main_progenitor_id(halo_id, file_path):
+        with open(file_path, "r") as file:
+            file_contents = file.read()
+            
+        for line in file_contents.split("\n"):
+            if len(line) == 0 or line[0] == "#":
+                continue
+
+            if int(line.strip().split(" ")[0]) == halo_id:
+                return line.strip().split(" ")[-1]
+
+    @staticmethod
+    def get_immediate_descendants_ids(halo_id, file_path):
+        with open(file_path, "r") as file:
+            file_contents = file.read()
+            
+        child_ids = []
+        current_child_id = None
+        for line in file_contents.split("\n"):
+            if len(line) == 0 or line[0] == "#":
+                continue
+
+            if line[0] != " ":
+                current_child_id = int(line.split(" ")[0])
+            else:
+                if int(line.split("  ")[2]) == halo_id:
+                    child_ids.append(current_child_id)
+
+        return child_ids
+
+    @staticmethod
+    def get_main_descendant_id(halo_id, file_path):
+        with open(file_path, "r") as file:
+            file_contents = file.read()
+            
+        for line in file_contents.split("\n"):
+            if len(line) == 0 or line[0] == "#":
+                continue
+
+            if int(line.strip().split(" ")[-1]) == halo_id:
+                return line.strip().split(" ")[0]
+
+    @staticmethod
+    def get_descendant_line()
+
+class RockstarData(HaloData):
+    ...
+
 class HaloFinderTypes:
     ahf = AHFData
-    # rockstar = 
+    rockstar = RockstarData
 
 
 class Snapshot:
@@ -140,7 +319,16 @@ class Snapshot:
     # CLASS_TYPE is defined so that code may be designed that takes in either a Snapshot or a Simulation, and it can check which one is passed in
     CLASS_TYPE = Halo.ClassType.SNAPSHOT
 
-    def __init__(self, sim, snapshot_value, simulation_directory, snapshot_directory, species, snapshot_value_kind="index", halo_finder_type: HaloData = AHFData, halo_data_file_path=None):
+    def __init__(self, 
+                 sim, 
+                 snapshot_value, 
+                 simulation_directory, 
+                 snapshot_directory, 
+                 species, 
+                 snapshot_value_kind="index", 
+                 halo_finder_type: HaloData = AHFData, 
+                 halo_data_file_path=None,
+                 merger_tree_file_path=None):
         # The following private values are initially None, and only loaded once they are accessed through their getters.
         self._particles = None
         self._halo_data = None
@@ -154,6 +342,7 @@ class Snapshot:
         self.snapshot_value_kind = snapshot_value_kind
         self.halo_finder_type = halo_finder_type
         self.halo_data_file_path = halo_data_file_path
+        self.merger_tree_file_path = merger_tree_file_path
 
     @property
     def particles(self):

@@ -73,7 +73,8 @@ def _get_particles_in_halo_filter_getter(particle_species,
                                          particle_in_halo_filter_var_name, 
                                          variable_names_set_name, 
                                          particle_positions_var_name, 
-                                         num_particles_in_filter_var_name):
+                                         num_particles_in_filter_var_name,
+                                         generator=None):
     @property
     def particles_in_halo_filter_getter(self):
         for filter_getter, boolean in getattr(self, restriction_queue_variable_name, []):
@@ -89,7 +90,8 @@ def _get_particles_in_halo_filter_getter(particle_species,
         setattr(self, restriction_queue_variable_name, [])
 
         if getattr(self, particle_in_halo_filter_var_name, None) is None:
-            setattr(self, particle_in_halo_filter_var_name, self.generate_constant_filter_getter(True)(self, particle_species, None))
+            if generator is None: generator = setattr(self, particle_in_halo_filter_var_name, self.generate_constant_filter_getter(True)(self, particle_species, None))
+            else: setattr(self, particle_in_halo_filter_var_name, generator(self))
 
         return self.__getattribute__(particle_in_halo_filter_var_name)
     
@@ -197,27 +199,36 @@ class ParticleGroup:
         self.snapshot = snapshot.snapshot if snapshot.CLASS_TYPE == ClassType.SIMULATION else snapshot
 
         # Each of these contain all the variable names for the values corresponding to different particles (i.e. _star_pos, _dark_vel etc.)
+        # We reason we store these is so that, when a restriction is applied, we can reset all the variables of each particle the restriction was applied to. (and so we know what variables to reset)
         self._star_vars = set()
         self._gas_vars = set()
         self._dark_vars = set()
         self._dark2_vars = set()
 
+        # These store a restriction when it is added, so they can all be applied in order once one of the particles is accessed
         self._stars_in_halo_restriction_queue = []
         self._gas_in_halo_restriction_queue = []
         self._dark_in_halo_restriction_queue = []
         self._dark2_in_halo_restriction_queue = []
 
+        # These store the names of the attributes that need to be reloaded after something like a restriction is applied
+        # We usually just set them to none to mark this, but the following sets are required in the specific case in which the simulation is not defined (i.e. the group has been saved to then loaded from a file) and an "and" restriction was made
         self._star_vars_to_reload = set()
         self._gas_vars_to_reload = set()
         self._dark_vars_to_reload = set()
         self._dark2_vars_to_reload = set()
 
+    # These variables store the number of each variable currently in the filter (obviously lol)
+    # Upon first access, they get the number from the snapshot.particles dict, but after they are just updated upon a restriction being applied
     num_stars_in_filter = _get_attribute_getter("_num_stars_in_filter", lambda self: len(self.star_pos) if getattr(self, "_star_pos", None) is not None else len(next(iter(self.snapshot.particles[Species.star].values()), [])) if self.snapshot is not None and Species.star in self.snapshot.particles else None)
     num_gas_in_filter = _get_attribute_getter("_num_gas_in_filter", lambda self: len(self.gas_pos) if getattr(self, "_gas_pos", None) is not None else len(next(iter(self.snapshot.particles[Species.gas].values()), [])) if self.snapshot is not None and Species.gas in self.snapshot.particles else None)
     num_dark_in_filter = _get_attribute_getter("_num_dark_in_filter", lambda self: len(self.dark_pos) if getattr(self, "_dark_pos", None) is not None else len(next(iter(self.snapshot.particles[Species.dark].values()), [])) if self.snapshot is not None and Species.dark in self.snapshot.particles else None)
     num_dark2_in_filter = _get_attribute_getter("_num_dark2_in_filter", lambda self: len(self.dark2_pos) if getattr(self, "_dark2_pos", None) is not None else len(next(iter(self.snapshot.particles[Species.dark2].values()), [])) if self.snapshot is not None and Species.dark2 in self.snapshot.particles else None)
 
     def reset_particle_attributes(self, species=Species.all):
+        """
+        Marks all particle attributes as being modified and needing to be recalculated.
+        """
         var_names = set()
         if species == Species.all or species == Species.star: 
             if self.snapshot is not None: var_names |= self._star_vars
@@ -237,6 +248,8 @@ class ParticleGroup:
         
         return self
     
+    # These variables store which particles are in the current particle group. They are arrays of length equal to the number of the corresponding particle,
+    # containing of True/False values that represent if the particle at that index is in the particle group.
     stars_in_halo_filter = _get_particles_in_halo_filter_getter(Species.star, "_stars_in_halo_restriction_queue", "_stars_in_halo_filter", "_star_vars", "_star_pos", "_num_stars_in_filter")
     gas_in_halo_filter = _get_particles_in_halo_filter_getter(Species.gas, "_gas_in_halo_restriction_queue", "_gas_in_halo_filter", "_gas_vars", "_gas_pos", "_num_gas_in_filter")
     dark_in_halo_filter = _get_particles_in_halo_filter_getter(Species.dark, "_dark_in_halo_restriction_queue", "_dark_in_halo_filter", "_dark_vars", "_dark_pos", "_num_dark_in_filter")
@@ -290,7 +303,7 @@ class ParticleGroup:
 
             self.__setattr__(num_particles_in_filter_var_name, np.count_nonzero(self.__getattribute__(particles_in_halo_filter_var_name)))
     
-    # Functions that generate return filter getters (filter getters are to be passed into add_restriction/apply_filter)
+    # Functions that generate and return filter getters (filter getters are functions that return a filter and are to be passed into add_restriction/apply_filter)
     def generate_constant_filter_getter(self, all_true_or_false):
         return lambda self, species, particle_positions=None: np.full(
             len(self.snapshot.particles[species]['position'] if particle_positions is None else particle_positions), 
@@ -406,7 +419,7 @@ class ParticleGroup:
         )
         
 
-    # Functions that quickly generate a filter getter and pass it into apply filter
+    # Functions that call the above functions to generate a filter getter, then pass it into add_restriction
     def reset_restriction(self, boolean=None) -> ParticleGroup:
         return self.add_restriction(self.generate_constant_filter_getter(True), boolean)
 
@@ -446,7 +459,8 @@ class ParticleGroup:
     We create one of these getter methods using the _get_attribute_getter function. What this function does is:
         - Take in an attribute name to store the actual value, i.e. "_star_pos"
         - Take in a function, i.e. a lambda function, that takes in self and returns the initial value of the attribute (i.e. lambda self: self.snapshot.particles[Species.star]['position'][self.stars_in_halo_filter])
-        - Take in the name of a set in self to add the attribute name to. This is so we can have a nice list of all the attributes later, for functionality such as resetting all attributes when a restriction made
+        - OPTIONAL: Take in the name of a set in self to add the attribute name to. This is so we can have a nice list of all the attributes later, for functionality such as resetting all attributes when a restriction made
+        - OPTIONAL: Take in the name of a set in self that stores which variables need to be reset, as well as the name of the particles_in_halo_filter getter corresponding to the particle. This is so that, if the particle is modified, we can reset it upon access without having to set it to None (which we can't do in the case that a snapshot is not defined) 
         - Return a getter method of the above structure, which can be assigned to a class variable (this class variable will now work as a getter method)
     """
 
@@ -678,6 +692,10 @@ class Halo(ParticleGroup):
         # See this_halo_center_pos, but for velocity.
         self.this_halo_center_vel = np.array([self.center_vel[0], self.center_vel[1], self.center_vel[2]])
 
+    @property
+    def host_halo_id(self):
+        return ...
+
     host_halo_id: int = _get_attribute_getter("_host_halo_id", lambda self: self.snapshot.halo_data.field('hostHalo(2)')[self.halo_id])
     sub_halo_ids = _get_attribute_getter("_sub_halo_ids", lambda self: np.where(self.snapshot.halo_data.field('hostHalo(2)') == self.halo_id))
     mass: float = _get_attribute_getter("_mass", lambda self: self.snapshot.get_field('4')[self.halo_id])
@@ -690,17 +708,17 @@ class Halo(ParticleGroup):
     star_mass: float = _get_attribute_getter("_star_mass", lambda self: self.snapshot.halo_data.field('M_star(65)')[self.halo_id])
     num_particles: int = _get_attribute_getter("_num_particles", lambda self: self.snapshot.halo_data.field('npart(5)')[self.halo_id])
 
-    stars_in_halo_filter: NDArray[bool] = _get_attribute_getter("_stars_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.star, None))
-    gas_in_halo_filter: NDArray[bool] = _get_attribute_getter("_gas_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.gas, None))
-    dark_in_halo_filter: NDArray[bool] = _get_attribute_getter("_dark_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.dark, None))
-    dark2_in_halo_filter: NDArray[bool] = _get_attribute_getter("_dark2_in_halo_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.dark2, None))
+    stars_in_halo_filter = _get_particles_in_halo_filter_getter(Species.star, "_stars_in_halo_restriction_queue", "_stars_in_halo_filter", "_star_vars", "_star_pos", "_num_stars_in_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.star, None))
+    gas_in_halo_filter = _get_particles_in_halo_filter_getter(Species.gas, "_gas_in_halo_restriction_queue", "_gas_in_halo_filter", "_gas_vars", "_gas_pos", "_num_gas_in_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.gas, None))
+    dark_in_halo_filter = _get_particles_in_halo_filter_getter(Species.dark, "_dark_in_halo_restriction_queue", "_dark_in_halo_filter", "_dark_vars", "_dark_pos", "_num_dark_in_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.dark, None))
+    dark2_in_halo_filter = _get_particles_in_halo_filter_getter(Species.dark2, "_dark2_in_halo_restriction_queue", "_dark2_in_halo_filter", "_dark2_vars", "_dark2_pos", "_num_dark2_in_filter", lambda self: self.generate_percentage_filter_getter(self.restricted_percentage)(self, Species.dark2, None))
 
     def generate_percentage_filter_getter(self, percentage):
         if percentage is None:
             return self.generate_constant_filter_getter(True)
         else:
             return self.generate_radius_filter_getter(self.halo_radius * (percentage / 100))
-        
+    
     def restrict_percentage(self, percentage: Union[float, int, None], boolean=None) -> Halo:
         return self.add_restriction(self.generate_percentage_filter_getter(percentage), boolean)
     
@@ -715,3 +733,73 @@ class Halo(ParticleGroup):
         
     def get_sub_halos(self, **halo_kwargs) -> list[Halo]:
         return [Halo(self.snapshot, child_id, **halo_kwargs) for child_id in self.child_halo_ids]
+
+    @property
+    def progenitors(self):
+        ...
+
+    @property
+    def main_progenitor(self):
+        ...
+
+    @property
+    def descendant(self):
+        if getattr(self, "_descendant", None) is None:
+            descendant_id = self.snapshot.halo_finder_type._get_descendant_id
+            self.__setattr__("_descendant", )
+        
+        return self.__getattribute__("_descendant")
+
+"""
+    @property
+    def attribute_getter(self):
+        to_be_reloaded = False
+
+        if getattr(self, var_name, None) is None:
+            if to_be_reloaded: getattr(self, to_be_reloaded_set_name, set()).discard(var_name)
+            if set_name_to_add_var_name is not None:
+                set_to_add_var_name = getattr(self, set_name_to_add_var_name, None)
+                if set_to_add_var_name is None:
+                    setattr(self, set_name_to_add_var_name, {var_name})
+                else:
+                    set_to_add_var_name.add(var_name)
+
+            new_val = generator(self)
+            setattr(self, var_name, new_val)
+            return new_val
+        elif to_be_reloaded_set_name is not None and (to_be_reloaded := var_name in getattr(self, to_be_reloaded_set_name, set())):
+            getattr(self, particle_in_halo_filter_getter_name, None)
+            
+        return self.__getattribute__(var_name)
+        
+    return attribute_getter
+    """
+
+    descendant = _get_attribute_getter("_descendant", lambda self: self.sim.halo_finder_type.get_main_child_id(self.halo_id, ))
+
+    @property
+    def descendant(self):
+        ...
+
+    def get_main_progenitor_line(self):
+        ...
+
+    def get_main_progenitor_in_snapshot(self, snapshot_num):
+        main_progenitor_line = self.get_main_progenitor_line()
+
+        if snapshot_num not in main_progenitor_line:
+            return None
+        
+        return main_progenitor_line[snapshot_num]
+
+    def get_descendant_line(self):
+        ...
+
+    def get_descendant_in_snapshot(self, snapshot_num):
+        descendant_line = self.get_main_progenitor_line()
+
+        if snapshot_num not in descendant_line:
+            return None
+        
+        return descendant_line[snapshot_num]
+
