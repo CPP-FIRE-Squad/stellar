@@ -82,19 +82,25 @@ class HaloData(abc.ABC):
     @staticmethod
     def _get_progenitor_ids(halo_id, file_path): raise NotImplementedError
     """
-    Returns the ids of all progenitors of the halo_id, given the path of a merger tree file
+    Returns the ids of all immediate progenitors of the halo with id halo_id, given the path of a merger tree file linking the given halo's snapshot to its progenitor's
     """
 
     # _get_main_progenitor_id need not be overwritten if get_main_progenitor_line is overwritten to not call it
     @staticmethod
     def _get_main_progenitor_id(halo_id, file_path): raise NotImplementedError
+    """
+    Returns the id of the immediate main progenitor of the halo with id halo_id, given the path of a merger tree file linking the given halo's snapshot to its progenitor's
+    """
 
     # _get_descendant_id need not be overwritten if get_descendant_line is overwritten to not call it
     @staticmethod
-    def _get_descendant_id(halo_id, file_path): raise NotImplementedError
+    def _get_descendant_id(halo_id, file_path, prioritize_most_contribution=False): raise NotImplementedError
+    """
+    Returns the id of the immediate descendant of the halo with id halo_id, given the path of a merger tree file linking the given halo's snapshot to its descendant's
+    """
 
-    @staticmethod
-    def get_progenitor_tree(snapshot_of_halo, halo_id): raise NotImplementedError
+    # @staticmethod
+    # def get_progenitor_tree(snapshot_of_halo, halo_id): raise NotImplementedError
 
     @classmethod
     def get_main_progenitor_line(cls, snapshot_of_halo, halo_id, merger_files_parent_directory_path):
@@ -116,7 +122,7 @@ class HaloData(abc.ABC):
         return main_progenitors
         
     @classmethod
-    def get_descendant_line(cls, snapshot_of_halo, halo_id, merger_files_parent_directory_path):
+    def get_descendant_line(cls, snapshot_of_halo, halo_id, merger_files_parent_directory_path, prioritize_most_contribution=False):
         cur_snapshot = snapshot_of_halo
         cur_main_progenitor_id = halo_id
         main_progenitors = {cur_snapshot: cur_main_progenitor_id}
@@ -261,7 +267,7 @@ class AHFData(HaloData):
     def get_main_progenitor_id(halo_id, file_path):
         with open(file_path, "r") as file:
             file_contents = file.read()
-            
+
         for line in file_contents.split("\n"):
             if len(line) == 0 or line[0] == "#":
                 continue
@@ -270,10 +276,10 @@ class AHFData(HaloData):
                 return line.strip().split(" ")[-1]
 
     @staticmethod
-    def get_immediate_descendants_ids(halo_id, file_path):
+    def get_descendant_id(halo_id, file_path, prioritize_most_contribution=False):
         with open(file_path, "r") as file:
             file_contents = file.read()
-            
+
         child_ids = []
         current_child_id = None
         for line in file_contents.split("\n"):
@@ -284,24 +290,28 @@ class AHFData(HaloData):
                 current_child_id = int(line.split(" ")[0])
             else:
                 if int(line.split("  ")[2]) == halo_id:
-                    child_ids.append(current_child_id)
+                    parts_contributed = int(line.split(" ")[2])
+                    child_ids.append((current_child_id, parts_contributed))
+                    if not prioritize_most_contribution:
+                        break
 
-        return child_ids
-
-    @staticmethod
-    def get_main_descendant_id(halo_id, file_path):
-        with open(file_path, "r") as file:
-            file_contents = file.read()
-            
-        for line in file_contents.split("\n"):
-            if len(line) == 0 or line[0] == "#":
-                continue
-
-            if int(line.strip().split(" ")[-1]) == halo_id:
-                return line.strip().split(" ")[0]
+        if len(child_ids) == 1:
+            return child_ids[0][0]
+        elif len(child_ids) == 0:
+            return None
+        else:
+            # Return child ID with highest corresponding parts_contributed
+            return max(child_ids, key=lambda child: child[1])[0]
 
     @staticmethod
-    def get_descendant_line()
+    def get_descendant_line():
+        ...
+
+    @staticmethod
+    def get_main_progenitor_line():
+        ...
+
+    
 
 class RockstarData(HaloData):
     ...
@@ -309,6 +319,41 @@ class RockstarData(HaloData):
 class HaloFinderTypes:
     ahf = AHFData
     rockstar = RockstarData
+
+class GeneratorDict(dict):
+    def __init__(self, set_value_function, all_keys=None):
+        self.all_keys = all_keys
+        self.set_value_function = set_value_function # Takes in this dict and key, and sets the value in this dict at the key to the desired value (and can set other vals)
+
+    def __getitem__(self, key):
+        if key not in self:
+            self.set_value_function(self, key)
+
+        return super().__getitem__(key)
+
+    def values(self):
+        if self.all_keys is None:
+            return super().values()
+        else:
+            return [self[key] for key in self.all_keys] 
+    
+    def keys(self):
+        return self.all_keys if self.all_keys is not None else super().keys()
+
+    def generated_keys(self):
+        return super().keys()
+
+    def generated_values(self):
+        return super().values()
+    
+    
+    # loaded keys
+    # all keys
+    # all values
+    # loaded values?
+    # give sorted values in an array
+    #     (both for keys and values)
+    #     how would i do this?
 
 
 class Snapshot:
@@ -343,6 +388,12 @@ class Snapshot:
         self.halo_finder_type = halo_finder_type
         self.halo_data_file_path = halo_data_file_path
         self.merger_tree_file_path = merger_tree_file_path
+
+    def get_next_snapshot_value(self):
+        return self.snapshot_value + 1
+    
+    def get_prev_snapshot_value(self):
+        return self.snapshot_value - 1
 
     @property
     def particles(self):

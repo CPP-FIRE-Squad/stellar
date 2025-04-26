@@ -733,22 +733,56 @@ class Halo(ParticleGroup):
         
     def get_sub_halos(self, **halo_kwargs) -> list[Halo]:
         return [Halo(self.snapshot, child_id, **halo_kwargs) for child_id in self.child_halo_ids]
+    
+    def get_progenitors(self, restrict_percentage: Union[float, int, None] = 100):
+        ...
+
+    def get_main_progenitor(self, restrict_percentage: Union[float, int, None] = 100):
+        ...
+    
+    def get_descendant(self, restrict_percentage: Union[float, int, None] = 100):
+        if self.snapshot is None:
+            return None
+        
+        if getattr(self, "_descendant", None) is None:
+            next_snapshot_value = self.snapshot.get_next_snapshot_value()
+            if next_snapshot_value is None:
+                return None
+            
+            descendants_merger_tree_file_path = self.snapshot.halo_finder_type.find_merger_tree_file_path(
+                self.snapshot.merger_tree_file_path if self.snapshot.merger_tree_file_path is not None else self.snapshot.simulation_directory,
+                self.snapshot.snapshot_value,
+                next_snapshot_value
+            )
+            if descendants_merger_tree_file_path is None:
+                return None  # TODO: Do I want to raise an error instead of any of these "return None"s
+
+            descendant_id = self.snapshot.halo_finder_type._get_descendant_id(self.halo_id, descendants_merger_tree_file_path)
+            if descendant_id is None:
+                return None
+            
+            self.__setattr__("_descendant", self.snapshot.sim.get_halo(descendant_id, next_snapshot_value, restrict_percentage))
+        
+        return self.__getattribute__("_descendant")
+    
+    def get_descendant_line(self, restrict_percentage: Union[float, int, None] = 100):
+        ...
 
     @property
     def progenitors(self):
-        ...
+        return self.get_progenitors()
 
     @property
     def main_progenitor(self):
-        ...
+        return self.get_main_progenitor()
 
     @property
     def descendant(self):
-        if getattr(self, "_descendant", None) is None:
-            descendant_id = self.snapshot.halo_finder_type._get_descendant_id
-            self.__setattr__("_descendant", )
-        
-        return self.__getattribute__("_descendant")
+        return self.get_descendant()
+    
+    @property
+    def descendant_line(self):
+        return self.get_descendant_line()
 
 """
     @property
