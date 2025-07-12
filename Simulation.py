@@ -90,10 +90,12 @@ class HaloData(abc.ABC):
     Returns the requested field in the loaded halo data corresponding
     """
 
+    @staticmethod
     @abc.abstractmethod
     def get_younger_snapshot_value(snapshot_value):
         return snapshot_value - 1
 
+    @staticmethod
     @abc.abstractmethod
     def get_older_snapshot_value(snapshot_value):
         return snapshot_value + 1
@@ -113,21 +115,21 @@ class HaloData(abc.ABC):
 
     # _get_progenitor_ids need not be overwritten if get_progenitor_tree is overwritten to not call it
     @staticmethod
-    def _get_progenitor_ids(halo_id, file_path): raise NotImplementedError
+    def get_progenitor_ids(halo_id, file_path): raise NotImplementedError
     """
     Returns the ids of all immediate progenitors of the halo with id halo_id, given the path of a merger tree file linking the given halo's snapshot to its progenitor's
     """
 
     # _get_main_progenitor_id need not be overwritten if get_main_progenitor_line is overwritten to not call it
     @staticmethod
-    def _get_main_progenitor_id(halo_id, file_path): raise NotImplementedError
+    def get_main_progenitor_id(halo_id, file_path): raise NotImplementedError
     """
     Returns the id of the immediate main progenitor of the halo with id halo_id, given the path of a merger tree file linking the given halo's snapshot to its progenitor's
     """
 
     # _get_descendant_id need not be overwritten if get_descendant_line is overwritten to not call it
     @staticmethod
-    def _get_descendant_id(halo_id, file_path, prioritize_most_contribution=False): raise NotImplementedError
+    def get_descendant_id(halo_id, file_path, prioritize_most_contribution=False): raise NotImplementedError
     """
     Returns the id of the immediate descendant of the halo with id halo_id, given the path of a merger tree file linking the given halo's snapshot to its descendant's
     """

@@ -673,17 +673,17 @@ class ParticleGroup:
 class Halo(ParticleGroup):
 
     def __init__(self, 
-                 sim, 
+                 snapshot, 
                  halo_id: int, 
                  restrict_percentage: Union[float, int, None] = 100,
                  species: Sequence[str] = ("all",)):
 
         self.halo_id = halo_id
-        self.halo_radius = sim.get_field('12')[halo_id]
+        self.halo_radius = snapshot.get_field('12')[halo_id]
 
         self.restricted_percentage = restrict_percentage
 
-        super().__init__(sim, species)
+        super().__init__(snapshot, species)
 
         self.center_on_halo(halo_id)
 
@@ -734,18 +734,65 @@ class Halo(ParticleGroup):
     def get_sub_halos(self, **halo_kwargs) -> list[Halo]:
         return [Halo(self.snapshot, child_id, **halo_kwargs) for child_id in self.child_halo_ids]
     
-    def get_progenitors(self, restrict_percentage: Union[float, int, None] = 100):
-        ...
 
-    def get_main_progenitor(self, restrict_percentage: Union[float, int, None] = 100):
-        ...
+    def get_progenitors(self, restrict_percentage: Union[float, int, None] = 100) -> Union[list[Halo], None]:
+        if self.snapshot is None:
+            return None
+        
+        if getattr(self, "_progenitors", None) is None:
+            prev_snapshot_value = self.snapshot.get_younger_snapshot_value()
+            if prev_snapshot_value is None:
+                return None
+            
+            progenitors_merger_tree_file_path = self.snapshot.halo_finder_type.find_merger_tree_file_path(
+                self.snapshot.merger_tree_file_path if self.snapshot.merger_tree_file_path is not None else self.snapshot.simulation_directory,
+                self.snapshot.snapshot_value,
+                prev_snapshot_value
+            )
+            if progenitors_merger_tree_file_path is None:
+                return None  # TODO: Do I want to raise an error instead of any of these "return None"s
+
+            progenitor_ids = self.snapshot.halo_finder_type.get_progenitor_ids(self.halo_id, progenitors_merger_tree_file_path)
+            if progenitor_ids is None:
+                return None
+
+            progenitor_halos = [self.snapshot.sim.get_halo(progenitor_id, prev_snapshot_value, restrict_percentage) for progenitor_id in progenitor_ids]
+            
+            self.__setattr__("_progenitors", progenitor_halos)
+        
+        return self.__getattribute__("_progenitors")
+
+    def get_main_progenitor(self, restrict_percentage: Union[float, int, None] = 100) -> Union[Halo, None]:
+        if self.snapshot is None:
+            return None
+        
+        if getattr(self, "_main_progenitor", None) is None:
+            prev_snapshot_value = self.snapshot.get_younger_snapshot_value()
+            if prev_snapshot_value is None:
+                return None
+            
+            main_progenitors_merger_tree_file_path = self.snapshot.halo_finder_type.find_merger_tree_file_path(
+                self.snapshot.merger_tree_file_path if self.snapshot.merger_tree_file_path is not None else self.snapshot.simulation_directory,
+                self.snapshot.snapshot_value,
+                prev_snapshot_value
+            )
+            if main_progenitors_merger_tree_file_path is None:
+                return None  # TODO: Do I want to raise an error instead of any of these "return None"s
+
+            main_progenitor_id = self.snapshot.halo_finder_type.get_main_progenitor_id(self.halo_id, main_progenitors_merger_tree_file_path)
+            if main_progenitor_id is None:
+                return None
+            
+            self.__setattr__("_main_progenitor", self.snapshot.sim.get_halo(main_progenitor_id, prev_snapshot_value, restrict_percentage))
+        
+        return self.__getattribute__("_main_progenitor")
     
-    def get_descendant(self, restrict_percentage: Union[float, int, None] = 100):
+    def get_descendant(self, restrict_percentage: Union[float, int, None] = 100) -> Union[Halo, None]:
         if self.snapshot is None:
             return None
         
         if getattr(self, "_descendant", None) is None:
-            next_snapshot_value = self.snapshot.get_next_snapshot_value()
+            next_snapshot_value = self.snapshot.get_older_snapshot_value()
             if next_snapshot_value is None:
                 return None
             
@@ -757,7 +804,7 @@ class Halo(ParticleGroup):
             if descendants_merger_tree_file_path is None:
                 return None  # TODO: Do I want to raise an error instead of any of these "return None"s
 
-            descendant_id = self.snapshot.halo_finder_type._get_descendant_id(self.halo_id, descendants_merger_tree_file_path)
+            descendant_id = self.snapshot.halo_finder_type.get_descendant_id(self.halo_id, descendants_merger_tree_file_path)
             if descendant_id is None:
                 return None
             
@@ -765,8 +812,67 @@ class Halo(ParticleGroup):
         
         return self.__getattribute__("_descendant")
     
-    def get_descendant_line(self, restrict_percentage: Union[float, int, None] = 100):
-        ...
+    class HaloGeneratorDict:
+        def __init__(self, sim, id_generator_dict, restrict_percentage=100) -> None:
+            self.sim = sim
+            self.ids = id_generator_dict
+            self.restrict_percentage = restrict_percentage
+
+        def __getitem__(self, key):
+            if key not in self:
+                self[key] = self.sim.get_halo(self.ids[key], key, self.restrict_percentage)
+            
+
+    def get_descendant_line(self, restrict_percentage: Union[float, int, None] = 100) -> HaloGeneratorDict:
+        if self.snapshot is None:
+            return None
+        
+        if getattr(self, "_descendant_line", None) is None:
+            merger_trees_directory_path = self.snapshot.merger_tree_file_path if self.snapshot.merger_tree_file_path is not None else self.snapshot.simulation_directory
+
+            descendant_line_ids = self.snapshot.halo_finder_type.get_descendant_line(self.snapshot.snapshot_value, self.halo_id, merger_trees_directory_path)
+            if descendant_line_ids is None:
+                return None
+
+            descendant_line = self.HaloGeneratorDict(self.snapshot.sim, descendant_line_ids, restrict_percentage)
+            
+            self.__setattr__("_descendant_line", descendant_line)
+        
+        return self.__getattribute__("_descendant_line")
+
+    def get_main_progenitor_line(self, restrict_percentage: Union[float, int, None] = 100) -> HaloGeneratorDict:
+        if self.snapshot is None:
+            return None
+        
+        if getattr(self, "_main_progenitor_line", None) is None:
+            merger_trees_directory_path = self.snapshot.merger_tree_file_path if self.snapshot.merger_tree_file_path is not None else self.snapshot.simulation_directory
+
+            main_progenitor_line_ids = self.snapshot.halo_finder_type.get_main_progenitor_line(self.snapshot.snapshot_value, self.halo_id, merger_trees_directory_path)
+            if main_progenitor_line_ids is None:
+                return None
+
+            main_progenitor_line = self.HaloGeneratorDict(self.snapshot.sim, main_progenitor_line_ids, restrict_percentage)
+            
+            self.__setattr__("_main_progenitor_line", main_progenitor_line)
+        
+        return self.__getattribute__("_main_progenitor_line")
+
+
+    def get_main_progenitor_in_snapshot(self, snapshot_num):
+        main_progenitor_line = self.get_main_progenitor_line()
+
+        if snapshot_num not in main_progenitor_line:
+            return None
+        
+        return main_progenitor_line[snapshot_num]
+
+    def get_descendant_in_snapshot(self, snapshot_num):
+        descendant_line = self.get_main_progenitor_line()
+
+        if snapshot_num not in descendant_line:
+            return None
+        
+        return descendant_line[snapshot_num]
 
     @property
     def progenitors(self):
@@ -783,57 +889,10 @@ class Halo(ParticleGroup):
     @property
     def descendant_line(self):
         return self.get_descendant_line()
-
-    """
+    
     @property
-    def attribute_getter(self):
-        to_be_reloaded = False
+    def main_progenitor_line(self):
+        return self.get_main_progenitor_line()
 
-        if getattr(self, var_name, None) is None:
-            if to_be_reloaded: getattr(self, to_be_reloaded_set_name, set()).discard(var_name)
-            if set_name_to_add_var_name is not None:
-                set_to_add_var_name = getattr(self, set_name_to_add_var_name, None)
-                if set_to_add_var_name is None:
-                    setattr(self, set_name_to_add_var_name, {var_name})
-                else:
-                    set_to_add_var_name.add(var_name)
-
-            new_val = generator(self)
-            setattr(self, var_name, new_val)
-            return new_val
-        elif to_be_reloaded_set_name is not None and (to_be_reloaded := var_name in getattr(self, to_be_reloaded_set_name, set())):
-            getattr(self, particle_in_halo_filter_getter_name, None)
-            
-        return self.__getattribute__(var_name)
-        
-    return attribute_getter
-    """
-
-    descendant = _get_attribute_getter("_descendant", lambda self: self.sim.halo_finder_type.get_main_child_id(self.halo_id, ))
-
-    @property
-    def descendant(self):
-        ...
-
-    def get_main_progenitor_line(self):
-        ...
-
-    def get_main_progenitor_in_snapshot(self, snapshot_num):
-        main_progenitor_line = self.get_main_progenitor_line()
-
-        if snapshot_num not in main_progenitor_line:
-            return None
-        
-        return main_progenitor_line[snapshot_num]
-
-    def get_descendant_line(self):
-        ...
-
-    def get_descendant_in_snapshot(self, snapshot_num):
-        descendant_line = self.get_main_progenitor_line()
-
-        if snapshot_num not in descendant_line:
-            return None
-        
-        return descendant_line[snapshot_num]
+    
 
