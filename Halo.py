@@ -784,7 +784,7 @@ class Halo(ParticleGroup):
     def descendant_line(self):
         return self.get_descendant_line()
 
-"""
+    """
     @property
     def attribute_getter(self):
         to_be_reloaded = False

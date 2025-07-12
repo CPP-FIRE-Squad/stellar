@@ -12,21 +12,10 @@ from typing import Union, Sequence, Literal
 # TODO: Need to make getting fields from HaloData more abstract. 
 #   Like make some number of fields that are in most halo finder data files available as attributes(?)
 
-def get_first_full_int_in_string(string):
-    """
-    Returns the first full integer that appears in the passed in string. I.e. passing in "abc123def456" returns 123. If no number is found, returns None
-    """
-    num = ""
-    for char in string:
-        if char.isdigit():
-            num += char
-        else:
-            if len(num) > 0:
-                break
-
-    return int(num) if len(num) > 0 else None
-
 def get_all_ints_in_string(string):
+    """
+    Returns all full integers that appear in the passed in string. I.e. passing in "abc123def456" returns [123, 456]. If no number is found, returns an empty array
+    """
     nums = []
     current_num = ""
     for char in string:
@@ -44,9 +33,45 @@ def find_file_containing_number(filenames, number, file_ending):
     """
     # snapshot_name = f"snapshot_{snapshot_value}" # TODO: Fill with zeros
     for filename in filenames:
-        file_num = get_first_full_int_in_string(filename)
+        file_num = get_all_ints_in_string(filename)
+        file_num = file_num[0] if len(file_num) > 0 else None
         if file_num == number and filename.endswith(file_ending): # TODO: This function
             return filename
+
+class GeneratorDict(dict):
+    def __init__(self, set_value_function, all_keys=None):
+        self._has_been_filled_out = False
+        self.all_keys = all_keys
+        self.set_value_function = set_value_function # Takes in this dict and key to set, and sets the value in this dict at the key to the desired value (and can set other vals). If key is None, sets all possible values
+                                                     # Returns True if key was successfully set, returns False if it wasn't
+
+    def __getitem__(self, key):
+        if key not in self:
+            self.set_value_function(self, key)
+
+        if key not in self:
+            raise KeyError(f"Unable to find trace merger tree to snapshot with value {key}")
+
+        return super().__getitem__(key)
+
+    def values(self):
+        if not self._has_been_filled_out: 
+            self.set_value_function(self, None)
+            self._has_been_filled_out = True
+        return super().keys()
+    
+    def keys(self):
+        if not self._has_been_filled_out: 
+            self.set_value_function(self, None)
+            self._has_been_filled_out = True
+        return super().keys()
+
+    def generated_keys(self):
+        return super().keys()
+
+    def generated_values(self):
+        return super().values()
+
 
 class HaloData(abc.ABC):
     """
@@ -65,6 +90,14 @@ class HaloData(abc.ABC):
     Returns the requested field in the loaded halo data corresponding
     """
 
+    @abc.abstractmethod
+    def get_younger_snapshot_value(snapshot_value):
+        return snapshot_value - 1
+
+    @abc.abstractmethod
+    def get_older_snapshot_value(snapshot_value):
+        return snapshot_value + 1
+
     @staticmethod
     @abc.abstractmethod
     def find_halo_data_file_path(parent_directory_path, snapshot_value, snapshot_value_kind='index'): ...
@@ -75,7 +108,7 @@ class HaloData(abc.ABC):
     @staticmethod
     def find_merger_tree_file_path(parent_directory_path, snapshot_value_1, snapshot_value_2): raise NotImplementedError
     """
-    Returns the path of the merger tree data file linking the given snapshot values, in the given directory
+    Returns the path of the merger tree data file linking the given snapshot values, in the given directory. The order of the snapshot values should not matter
     """
 
     # _get_progenitor_ids need not be overwritten if get_progenitor_tree is overwritten to not call it
@@ -104,61 +137,55 @@ class HaloData(abc.ABC):
 
     @classmethod
     def get_main_progenitor_line(cls, snapshot_of_halo, halo_id, merger_files_parent_directory_path):
-        cur_snapshot = snapshot_of_halo
-        cur_main_progenitor_id = halo_id
-        main_progenitors = {cur_snapshot: cur_main_progenitor_id}
 
-        while True:
-            merger_tree_file = cls.find_halo_data_file_path(merger_files_parent_directory_path, cur_snapshot, cur_snapshot - 1)
-            if merger_tree_file is None:
-                break
-            
-            cur_main_progenitor_id = cls._get_main_progenitor_id(cur_main_progenitor_id)
+        def set_value(this_dict, key):
+            prev_snapshot = None
+            cur_snapshot = snapshot_of_halo
+            while True:
+                prev_snapshot = cur_snapshot
+                cur_snapshot = cls.get_younger_snapshot_value(cur_snapshot)
+                if cur_snapshot not in this_dict:
+                    prev_halo_id = this_dict[prev_snapshot]
+                    merger_tree_file = cls.find_merger_tree_file_path(merger_files_parent_directory_path, cur_snapshot, prev_snapshot)
 
-            main_progenitors[cur_snapshot] = cur_main_progenitor_id
-            
-            cur_snapshot -= 1
+                    if merger_tree_file is None: return False
 
-        return main_progenitors
+                    cur_halo_id = cls._get_main_progenitor_id(prev_halo_id, merger_tree_file)
+                    this_dict[cur_snapshot] = cur_halo_id
+
+                if cur_snapshot == key:
+                    return True
+             
+        generator_dict = GeneratorDict(set_value)
+        generator_dict[snapshot_of_halo] = halo_id
+
+        return generator_dict
         
     @classmethod
     def get_descendant_line(cls, snapshot_of_halo, halo_id, merger_files_parent_directory_path, prioritize_most_contribution=False):
-        cur_snapshot = snapshot_of_halo
-        cur_main_progenitor_id = halo_id
-        main_progenitors = {cur_snapshot: cur_main_progenitor_id}
+        
+        def set_value(this_dict, key):
+            prev_snapshot = None
+            cur_snapshot = snapshot_of_halo
+            while True:
+                prev_snapshot = cur_snapshot
+                cur_snapshot = cls.get_older_snapshot_value(cur_snapshot)
+                if cur_snapshot not in this_dict:
+                    prev_halo_id = this_dict[prev_snapshot]
+                    merger_tree_file = cls.find_merger_tree_file_path(merger_files_parent_directory_path, cur_snapshot, prev_snapshot)
 
-        while True:
-            merger_tree_file = cls.find_halo_data_file_path(merger_files_parent_directory_path, cur_snapshot + 1, cur_snapshot)
-            if merger_tree_file is None:
-                break
-            
-            cur_main_progenitor_id = cls._get_descendant_id(cur_main_progenitor_id)
+                    if merger_tree_file is None: return False
 
-            main_progenitors[cur_snapshot] = cur_main_progenitor_id
-            
-            cur_snapshot += 1
+                    cur_halo_id = cls._get_main_progenitor_id(prev_halo_id, merger_tree_file)
+                    this_dict[cur_snapshot] = cur_halo_id
 
-        return main_progenitors
-    
+                if cur_snapshot == key:
+                    return True
+             
+        generator_dict = GeneratorDict(set_value)
+        generator_dict[snapshot_of_halo] = halo_id
 
-# class Progenitor:
-#     def __init__(self, halo_finder, halo_id, snapshot):
-#         self.halo_finder: HaloData = halo_finder
-#         self.snapshot = snapshot
-#         self.halo_id = halo_id
-#         self.progenitors: set[Progenitor] = ...
-
-#         self._main_progenitor = None
-#         self._progenitors = None
-
-#     @property
-#     def main_progenitor(self):
-#         if self._main_progenitor is None:
-#             self._main_progenitor = self.halo_finder.get_progenitor_tree(self.snapshot, self.id)
-
-#         return self._main_progenitor
-
-#     @property
+        return generator_dict
 
 class AHFData(HaloData):
     def __init__(self, snapshot, path, snapshot_value):
@@ -223,7 +250,8 @@ class AHFData(HaloData):
     def find_halo_data_file_path(parent_directory_path, snapshot_value, snapshot_value_kind='index') -> Union[str, None]:
         parent_directory_contents = os.listdir(parent_directory_path)
         for filename in parent_directory_contents:
-            file_num = get_first_full_int_in_string(filename)
+            file_num = get_all_ints_in_string(filename)
+            file_num = file_num[0] if len(file_num) > 0 else None
 
             if file_num == snapshot_value and filename.endswith('.AHF_halos'): # TODO: This function
                 return os.path.join(parent_directory_path, filename)
@@ -311,49 +339,12 @@ class AHFData(HaloData):
     def get_main_progenitor_line():
         ...
 
-    
-
 class RockstarData(HaloData):
     ...
 
 class HaloFinderTypes:
     ahf = AHFData
     rockstar = RockstarData
-
-class GeneratorDict(dict):
-    def __init__(self, set_value_function, all_keys=None):
-        self.all_keys = all_keys
-        self.set_value_function = set_value_function # Takes in this dict and key, and sets the value in this dict at the key to the desired value (and can set other vals)
-
-    def __getitem__(self, key):
-        if key not in self:
-            self.set_value_function(self, key)
-
-        return super().__getitem__(key)
-
-    def values(self):
-        if self.all_keys is None:
-            return super().values()
-        else:
-            return [self[key] for key in self.all_keys] 
-    
-    def keys(self):
-        return self.all_keys if self.all_keys is not None else super().keys()
-
-    def generated_keys(self):
-        return super().keys()
-
-    def generated_values(self):
-        return super().values()
-    
-    
-    # loaded keys
-    # all keys
-    # all values
-    # loaded values?
-    # give sorted values in an array
-    #     (both for keys and values)
-    #     how would i do this?
 
 
 class Snapshot:
