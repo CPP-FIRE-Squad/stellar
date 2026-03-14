@@ -10,6 +10,6 @@ setup(
     url='https://github.com/CPP-FIRE-Squad/stellar',
     py_modules=['Halo', 'Simulation', 'Particle'],
     install_requires=[
-        'astropy', "git+https://bitbucket.org/awetzel/gizmo_analysis.git"
+        'astropy', "gizmo_analysis @ git+https://bitbucket.org/awetzel/gizmo_analysis.git"
     ],
 )
