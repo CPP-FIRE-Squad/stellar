@@ -8,7 +8,7 @@ setup(
     description= 'A utility package for CPP Fire Squad',
     license='MIT',
     url='https://github.com/CPP-FIRE-Squad/stellar',
-    py_modules=['stellar'],
+    packages=['stellar'],
     install_requires=[
         'astropy'
     ],
