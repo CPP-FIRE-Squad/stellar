@@ -1,4 +1,10 @@
+import os
 from setuptools import setup
+
+dependencies = ['numpy', 'astropy']
+
+if sys.version_info >= (3, 10):
+    dependencies.append("gizmo_analysis @ git+https://bitbucket.org/awetzel/gizmo_analysis.git")
 
 setup(
     name='stellar',
@@ -9,7 +15,5 @@ setup(
     license='MIT',
     url='https://github.com/CPP-FIRE-Squad/stellar',
     py_modules=['Halo', 'Simulation', 'Particle'],
-    install_requires=[
-        'astropy', "gizmo_analysis @ git+https://bitbucket.org/awetzel/gizmo_analysis.git"
-    ],
+    install_requires=dependencies
 )
