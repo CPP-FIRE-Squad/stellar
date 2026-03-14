@@ -3,6 +3,7 @@ from typing import Union, Sequence, Literal
 
 # TODO: Make all the parameter and variable names make intuitive sense. They suck in my implementation right now.
 #   HaloData
+#   stars_in_halo_filter should be renamed to stars_in_group_filter
 #   Plurality
 #   Simulation file path and simulation file name can be combined, probably.
 #     Just do a simple os.file exists() on f"../data/{name}", otherwise treat it as a path. Return an error if it doesnt exist at the path either
@@ -11,6 +12,10 @@ from typing import Union, Sequence, Literal
 
 # TODO: Need to make getting fields from HaloData more abstract. 
 #   Like make some number of fields that are in most halo finder data files available as attributes(?)
+
+# TODO: Can I let the user import a snapshot/sim that only has halo data and/or merger tree files?
+
+# TODO: Import all snapshots if not defined, and only search the file when a snapshot is accessed?
 
 def get_all_ints_in_string(string):
     """
@@ -458,13 +463,15 @@ class Simulation:
                  halo_data_file_path: Union[str, list[str]] = None,
                  halo_finder_type: HaloData = HaloFinderTypes.ahf,
                  snapshot_value_kind: Literal['index', 'redshift', 'scalefactor', 'time'] = 'index',
-                 snapshot_values: Union[int, list[int]] = 600):
+                 snapshot_values: Union[int, list[int], range] = 600):
 
         self.snapshots = []
         self.halo_datas = []
 
         if isinstance(snapshot_values, int):
             snapshot_values = [snapshot_values]
+        elif isinstance(snapshot_values, range):
+            snapshot_values = list(snapshot_values)
 
         # If a simulation name has been given, we can assume the user is using the conventional locations
         if simulation_directory_name is not None:

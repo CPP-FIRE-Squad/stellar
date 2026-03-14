@@ -21,7 +21,7 @@ sys.path.insert(0, "/home/olive/Documents/Research Python/playground/src")
 
 # TODO: Deal with self.num_stars_in_filter being undefined until a filter is applied
 
-def _get_attribute_getter(var_name, generator, set_name_to_add_var_name=None, to_be_reloaded_set_name=None, particle_in_halo_filter_getter_name=None):
+def _get_attribute_getter(var_name, initial_value_generator, set_name_to_add_var_name=None, to_be_reloaded_set_name=None, particle_in_halo_filter_getter_name=None):
     """Returns a getter that returns the attribute with the name given by var_name. 
     Before the attribute is accessed, it is not initialized and is None/inaccessible. When it is accessed by the getter for the first time, its initial value is created 
     by the generator function. This allows for values to not be initialized until they are accessed for the first time, reducing processing power by not initializing
@@ -58,7 +58,7 @@ def _get_attribute_getter(var_name, generator, set_name_to_add_var_name=None, to
                 else:
                     set_to_add_var_name.add(var_name)
 
-            new_val = generator(self)
+            new_val = initial_value_generator(self)
             setattr(self, var_name, new_val)
             return new_val
         elif to_be_reloaded_set_name is not None and (to_be_reloaded := var_name in getattr(self, to_be_reloaded_set_name, set())):
@@ -74,7 +74,8 @@ def _get_particles_in_halo_filter_getter(particle_species,
                                          variable_names_set_name, 
                                          particle_positions_var_name, 
                                          num_particles_in_filter_var_name,
-                                         generator=None):
+                                         initial_value_generator=None):
+    
     @property
     def particles_in_halo_filter_getter(self):
         for filter_getter, boolean in getattr(self, restriction_queue_variable_name, []):
@@ -86,12 +87,13 @@ def _get_particles_in_halo_filter_getter(particle_species,
                               particle_positions_var_name, 
                               num_particles_in_filter_var_name, 
                               boolean)
-        
         setattr(self, restriction_queue_variable_name, [])
 
         if getattr(self, particle_in_halo_filter_var_name, None) is None:
-            if generator is None: generator = setattr(self, particle_in_halo_filter_var_name, self.generate_constant_filter_getter(True)(self, particle_species, None))
-            else: setattr(self, particle_in_halo_filter_var_name, generator(self))
+            if initial_value_generator is None: 
+                setattr(self, particle_in_halo_filter_var_name, self.generate_constant_filter_getter(True)(self, particle_species, None))
+            else: 
+                setattr(self, particle_in_halo_filter_var_name, initial_value_generator(self))
 
         return self.__getattribute__(particle_in_halo_filter_var_name)
     
@@ -180,14 +182,6 @@ class ParticleGroup:
         Initially contains all particles, but restrictions can be called on this object to filter specific particles.
 
         :param sim: The Sim object to extract halo from.
-        :param halo_id: The ID of the halo to extract.
-        :param incl_stars: Whether to include this halo's stars in this object. True/False to include all/no attributes, or iterable of strings/ParticleAttrs values to choose specific attributes.
-        :param incl_gas: See incl_stars, but for gas particles.
-        :param incl_dark: See incl_stars, but for all dark matter particles.
-        :param incl_dark2: See incl_stars, but for a reduced quality of dark matter particles.
-        :param incl_halo_info: Whether to load the halo's info beyond its center pos+vel and radius.
-        :param immediately_load_particles: Whether to load the included particles upon init, using restrict_percentage with the provided value.
-        :param restrict_percentage: If particles are immediately loaded, what restrict_percentage should be used. Set this to false if you are immediately filtering a different way.
         """
 
         # The position that all particle positions are relative to. The absolute coordinates of the Zero in the active reference frame. This can be changed.
@@ -675,15 +669,14 @@ class Halo(ParticleGroup):
     def __init__(self, 
                  snapshot, 
                  halo_id: int, 
-                 restrict_percentage: Union[float, int, None] = 100,
-                 species: Sequence[str] = ("all",)):
+                 restrict_percentage: Union[float, int, None] = 100):
 
         self.halo_id = halo_id
         self.halo_radius = snapshot.get_field('12')[halo_id]
 
         self.restricted_percentage = restrict_percentage
 
-        super().__init__(snapshot, species)
+        super().__init__(snapshot)
 
         self.center_on_halo(halo_id)
 
